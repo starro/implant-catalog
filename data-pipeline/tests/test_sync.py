@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from drheri_pipeline import storage
@@ -206,3 +207,64 @@ def test_un_reject_returns_stage_to_review_and_moves_file_back(data_root, monkey
     assert row["rel_path"].startswith("review/")
     assert (storage.DATA_ROOT / row["rel_path"]).exists()
     assert not (storage.DATA_ROOT / "rejected" / "r1.png").exists()
+
+
+class _FakeSample(dict):
+    """FiftyOne Sample 을 흉내낸 최소 스텁 — select_fields 로 선택된 필드만 담는다."""
+
+    def __init__(self, data: dict, tags: list[str]):
+        super().__init__(data)
+        self.tags = tags
+
+
+class _FakeDataset:
+    """FiftyOne Dataset 을 흉내낸 최소 스텁.
+
+    실제 FiftyOne 은 get_field_schema() 에 없는 필드를 select_fields() 로 요청하면 예외를 던진다.
+    이 스텁도 동일하게, select_fields 에 넘어온 필드 중 스키마에 있는 것만 샘플에 채워
+    "방어 없이 짰다면 KeyError/예외가 났을 것"을 재현한다.
+    """
+
+    def __init__(self, schema: dict, samples: list[dict]):
+        self._schema = schema
+        self._samples = samples
+
+    def get_field_schema(self) -> dict:
+        return self._schema
+
+    def select_fields(self, fields: list[str]):
+        out = []
+        for s in self._samples:
+            data = {f: s[f] for f in fields if f in self._schema}
+            out.append(_FakeSample(data, s.get("tags", [])))
+        return out
+
+
+class _FakeFiftyOneModule:
+    def __init__(self, dataset: "_FakeDataset"):
+        self._dataset = dataset
+
+    def list_datasets(self):
+        return [sync.DATASET]
+
+    def load_dataset(self, name):
+        assert name == sync.DATASET
+        return self._dataset
+
+
+def test_read_review_state_fills_missing_schema_fields_with_none(monkeypatch):
+    """Critical 2: surface 필드가 없는(구버전) FiftyOne 데이터셋을 만나도 예외 없이 동작해야 하고,
+    없는 필드는 None 으로 채워야 한다. 실제 FiftyOne 없이 sys.modules 에 가짜 모듈을 주입해 검증한다.
+    """
+    schema = {"content_hash": object(), "filepath": object(), "stage": object(),
+              "brand": object(), "series": object(), "model": object()}   # surface 없음(구버전)
+    samples = [{"content_hash": "h1", "filepath": "/data/review/h1.png", "stage": "review",
+                "brand": "Osstem", "series": "TSIII", "model": "TSIII4010S", "tags": ["keep"]}]
+    fake_module = _FakeFiftyOneModule(_FakeDataset(schema, samples))
+    monkeypatch.setitem(sys.modules, "fiftyone", fake_module)
+
+    out = sync.read_review_state()
+
+    assert out == [{"content_hash": "h1", "tags": ["keep"], "filepath": "/data/review/h1.png",
+                    "stage": "review", "brand": "Osstem", "series": "TSIII",
+                    "surface": None, "model": "TSIII4010S"}]

@@ -45,6 +45,11 @@ def read_review_state() -> list[dict]:
 
     filepath/stage 는 3단계에서 "DB 와 어긋난 것"을 판정하는 기준이 된다.
     미설치/데이터셋 없으면 빈 리스트.
+
+    방어적 스키마 처리: 옛날에 등록된(예: surface 필드 추가 이전) 데이터셋에는 여기서 원하는
+    필드가 일부 없을 수 있다. get_field_schema() 로 실제 존재하는 필드만 select_fields 에 넘기고,
+    없는 필드는 None 으로 채운다 — 스키마에 없는 필드를 select_fields 로 요청하면 FiftyOne 이
+    예외를 던지기 때문에, 이 방어가 없으면 옛 데이터셋을 만나는 즉시 "검수결과 반영"이 깨진다.
     """
     try:
         import fiftyone as fo
@@ -53,11 +58,18 @@ def read_review_state() -> list[dict]:
     if DATASET not in fo.list_datasets():
         return []
     ds = fo.load_dataset(DATASET)
+    schema = ds.get_field_schema()
+    wanted = ["content_hash", "filepath", "stage", *LABEL_FIELDS]
+    present = [f for f in wanted if f in schema]
     out = []
-    for s in ds.select_fields(["content_hash", "tags", "filepath", "stage", *LABEL_FIELDS]):
-        out.append({"content_hash": s["content_hash"], "tags": list(s.tags or []),
-                    "filepath": s["filepath"], "stage": s["stage"],
-                    **{f: s[f] for f in LABEL_FIELDS}})
+    for s in ds.select_fields(present):
+        out.append({
+            "content_hash": s["content_hash"] if "content_hash" in present else None,
+            "tags": list(s.tags or []),
+            "filepath": s["filepath"] if "filepath" in present else None,
+            "stage": s["stage"] if "stage" in present else None,
+            **{f: (s[f] if f in present else None) for f in LABEL_FIELDS},
+        })
     return out
 
 

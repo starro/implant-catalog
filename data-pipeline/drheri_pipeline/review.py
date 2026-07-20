@@ -36,7 +36,7 @@ def register_fiftyone(records: list[dict], log=print) -> int:
         ds = fo.load_dataset(DATASET)
     else:
         ds = fo.Dataset(DATASET, persistent=True)
-        for f in ["content_hash", "brand", "series", "model", "modality",
+        for f in ["content_hash", "brand", "series", "surface", "model", "modality",
                   "stage", "source_id", "origin_url", "nearby_text"]:
             ds.add_sample_field(f, fo.StringField)
 
@@ -49,6 +49,7 @@ def register_fiftyone(records: list[dict], log=print) -> int:
         s["content_hash"] = r["content_hash"]
         s["brand"] = r.get("brand")
         s["series"] = r.get("series")
+        s["surface"] = r.get("surface")
         s["model"] = r.get("model")
         s["modality"] = r.get("modality")
         s["stage"] = "review"
