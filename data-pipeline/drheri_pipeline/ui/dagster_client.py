@@ -17,8 +17,12 @@ def _client() -> DagsterGraphQLClient:
     return DagsterGraphQLClient(HOST, port_number=PORT)
 
 
-def submit(pdf_url: str, brand: str, series: str, conf: float, dpi: int, pages: str) -> str:
-    """카탈로그 수집 잡 실행 → run_id 반환."""
+def submit(*, pdf_url: str, brand: str, series: str, conf: float, dpi: int,
+           pages: str, document_id: int, ui_run_id: int) -> str:
+    """카탈로그 수집 잡 실행 → dagster run_id 반환.
+
+    document_id/ui_run_id 를 함께 넘겨야 수집 결과가 어느 문서·어느 런의 것인지 DB 에 연결된다.
+    """
     run_config = {
         "ops": {
             "catalog_pdf_images": {
@@ -29,7 +33,8 @@ def submit(pdf_url: str, brand: str, series: str, conf: float, dpi: int, pages: 
                     "conf": float(conf),
                     "dpi": int(dpi),
                     "pages": pages or "",
-                    "auto_approve": False,      # 중간단계(review)에서 멈춤 — 사람이 선별
+                    "document_id": int(document_id),
+                    "ui_run_id": int(ui_run_id),
                 }
             }
         }

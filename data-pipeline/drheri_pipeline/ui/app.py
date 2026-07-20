@@ -7,14 +7,14 @@ from __future__ import annotations
 from starlette.applications import Starlette
 
 from drheri_pipeline.db import conn
-from drheri_pipeline.ui.api import sources
+from drheri_pipeline.ui.api import runs, sources
 from drheri_pipeline.ui.envelope import ApiError, api_error_handler, unhandled_error_handler
 
 
 def create_app() -> Starlette:
     conn.migrate()
     return Starlette(
-        routes=[*sources.routes],
+        routes=[*sources.routes, *runs.routes],
         exception_handlers={ApiError: api_error_handler, Exception: unhandled_error_handler},
     )
 
