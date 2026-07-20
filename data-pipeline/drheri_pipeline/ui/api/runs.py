@@ -124,6 +124,12 @@ async def run_log(request: Request):
     return ok({"run": run, "dagster_url": url})
 
 
+def _sync_saved_views_safely() -> dict:
+    """FiftyOne saved view 자동 갱신. 실패해도 훅 처리 자체는 실패시키지 않는다(FiftyOne 미설치 포함)."""
+    from scripts.fiftyone_saved_views import sync_views_safely
+    return sync_views_safely()
+
+
 async def hook_run_finished(request: Request):
     if request.headers.get("X-Hook-Token") != HOOK_TOKEN:
         raise ApiError("unauthorized", "훅 토큰이 올바르지 않습니다", status=401)
@@ -149,13 +155,16 @@ async def hook_run_finished(request: Request):
     doc_id, extracted = await run_in_threadpool(_finish)
 
     restart = None
+    saved_views = None
     if status == "SUCCESS":
         restart = await run_in_threadpool(fiftyone_ctl.restart)
+        saved_views = await run_in_threadpool(_sync_saved_views_safely)
 
     broadcaster.publish("run.finished", {
         "ui_run_id": ui_run_id, "document_id": doc_id, "status": status,
-        "extracted": extracted, "error": error, "fiftyone": restart})
-    return ok({"ui_run_id": ui_run_id, "fiftyone": restart})
+        "extracted": extracted, "error": error, "fiftyone": restart,
+        "saved_views": saved_views})
+    return ok({"ui_run_id": ui_run_id, "fiftyone": restart, "saved_views": saved_views})
 
 
 async def events(request: Request):

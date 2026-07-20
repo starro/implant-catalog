@@ -140,6 +140,24 @@ def test_hook_broadcasts_extracted_matching_db_value_not_raw_zero(client, monkey
     assert captured["payload"]["extracted"] == 7
 
 
+def test_hook_succeeds_even_if_saved_views_sync_fails(client, monkeypatch):
+    """Important 1: saved view 자동 갱신 실패가 훅 처리 자체를 실패시키면 안 된다."""
+    from scripts import fiftyone_saved_views
+
+    def _boom():
+        raise RuntimeError("FiftyOne 연결 실패(테스트)")
+
+    monkeypatch.setattr(fiftyone_saved_views, "sync_views", _boom)
+    doc = _doc(client)
+    ui_run_id = client.post(f"/api/sources/{doc}/collect", json={}).json()["data"]["ui_run_id"]
+
+    r = client.post("/api/hooks/run-finished", headers={"X-Hook-Token": "drheri-dev"},
+                    json={"ui_run_id": ui_run_id, "status": "SUCCESS", "extracted": 5, "error": None})
+
+    assert r.json()["ok"] is True
+    assert r.json()["data"]["saved_views"]["ok"] is False
+
+
 def test_latest_reconciles_running_run_from_dagster(client, monkeypatch):
     doc = _doc(client)
     client.post(f"/api/sources/{doc}/collect", json={})

@@ -36,11 +36,28 @@ def sync_views() -> int:
                      description=r["name"])
         made += 1
 
-    # 버림 전용 뷰 — 오판 복구용
-    if "버림" in ds.list_saved_views():
+    # 버림 전용 뷰 — 오판 복구용.
+    # 뷰 이름은 ASCII 여야 한다: FiftyOne 은 저장 시 뷰 이름을 slug 화하는데, 순수 한글은
+    # 유효 문자가 남지 않아 거부될 수 있다. 한글 설명은 description 에 남긴다.
+    if "버림" in ds.list_saved_views():          # 과거 이름 — 있으면 정리(마이그레이션)
         ds.delete_saved_view("버림")
-    ds.save_view("버림", ds.match(F("stage") == "rejected"), description="버림 처리된 이미지")
+    if "rejected" in ds.list_saved_views():
+        ds.delete_saved_view("rejected")
+    ds.save_view("rejected", ds.match(F("stage") == "rejected"), description="버림 처리된 이미지")
     return made
+
+
+def sync_views_safely() -> dict:
+    """sync_views() 를 예외 없이 감싼다.
+
+    호출자(수집 완료 훅, run_sync())의 본 작업은 saved view 갱신이 실패해도 실패시키면 안 된다.
+    FiftyOne 미설치 환경(로컬 개발 등)에서도 호출자가 깨지지 않아야 한다.
+    """
+    try:
+        made = sync_views()
+        return {"ok": True, "made": made}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"{e.__class__.__name__}: {e}"}
 
 
 if __name__ == "__main__":

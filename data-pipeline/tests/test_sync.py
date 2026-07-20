@@ -268,3 +268,24 @@ def test_read_review_state_fills_missing_schema_fields_with_none(monkeypatch):
     assert out == [{"content_hash": "h1", "tags": ["keep"], "filepath": "/data/review/h1.png",
                     "stage": "review", "brand": "Osstem", "series": "TSIII",
                     "surface": None, "model": "TSIII4010S"}]
+
+
+def test_run_sync_succeeds_even_if_saved_views_sync_fails(data_root, monkeypatch):
+    """Important 1: FiftyOne saved view 자동 갱신이 실패해도(FiftyOne 미설치 등) run_sync() 는
+    정상 결과를 반환해야 한다 — 예외를 밖으로 던지면 안 된다."""
+    from scripts import fiftyone_saved_views
+
+    def _boom():
+        raise RuntimeError("FiftyOne 연결 실패(테스트)")
+
+    monkeypatch.setattr(fiftyone_saved_views, "sync_views", _boom)
+    _seed_images(data_root)
+    monkeypatch.setattr(sync, "read_review_state", lambda: [])
+    monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
+
+    out = sync.run_sync()
+
+    assert out["kept"] == 0
+    assert out["rejected"] == 0
+    assert out["saved_views"]["ok"] is False
+    assert "FiftyOne 연결 실패" in out["saved_views"]["detail"]
