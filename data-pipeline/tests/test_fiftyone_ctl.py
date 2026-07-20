@@ -41,3 +41,43 @@ def test_restart_succeeds_when_health_ok(monkeypatch):
     monkeypatch.setattr(fiftyone_ctl, "health",
                         lambda: {"ok": True, "port": 5151, "detail": "OK"})
     assert fiftyone_ctl.restart()["ok"] is True
+
+
+def test_restart_calls_stop_kill_orphans_start_health_in_order(monkeypatch):
+    """스텁을 각각 교체하는 것만으로는 순서가 뒤바뀌어도 통과한다 — 실제 호출 순서를 기록해 검증."""
+    order = []
+    monkeypatch.setattr(fiftyone_ctl, "stop",
+                        lambda: (order.append("stop"), ["stopped"])[1])
+    monkeypatch.setattr(fiftyone_ctl, "kill_orphans",
+                        lambda: (order.append("kill_orphans"), 0)[1])
+    monkeypatch.setattr(fiftyone_ctl, "start",
+                        lambda: order.append("start"))
+    monkeypatch.setattr(fiftyone_ctl, "health",
+                        lambda: (order.append("health"),
+                                 {"ok": True, "port": 5151, "detail": "OK"})[1])
+
+    fiftyone_ctl.restart()
+
+    assert order == ["stop", "kill_orphans", "start", "health"]
+
+
+def test_kill_orphans_returns_pid_count_from_pgrep_not_pattern_count(monkeypatch):
+    """계약은 '종료시킨 프로세스 수'다 — 패턴 개수(최대 3)가 아니라 pgrep 이 찾은 PID 개수를 세야 한다."""
+    pat1, pat2, pat3 = fiftyone_ctl.ORPHAN_PATTERNS
+    pid_output = {pat1: "111\n222\n", pat2: "", pat3: "333\n"}  # 2 + 0 + 1 = 3 PID, 패턴은 3개 다 매치
+
+    class R:
+        def __init__(self, stdout=""):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == "pgrep":
+            return R(pid_output.get(cmd[-1], ""))
+        return R()
+
+    monkeypatch.setattr(fiftyone_ctl.subprocess, "run", fake_run)
+    n = fiftyone_ctl.kill_orphans()
+
+    assert n == 3

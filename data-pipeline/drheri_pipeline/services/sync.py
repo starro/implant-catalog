@@ -4,8 +4,19 @@
   1) 태그로 판정: keep / reject
   2) 라벨 직접 수정: brand / series / surface / model
 
-이 모듈이 한 번에 처리하는 것: 판정 반영 → 라벨 반영 → 승급(training) → 파일 이동.
-버림은 삭제가 아니라 data/rejected/ 로 이동한다(오판 복구 가능).
+`run_sync()` 는 세 단계로 나뉜다. 각 단계는 서로 다른 실패 모드를 갖고,
+뒤 단계의 실패가 앞 단계를 오염시키지 않도록 분리했다.
+
+  1단계 (트랜잭션 안): DB 만 갱신 — 판정/라벨 반영, 승급 판단, 목표 rel_path 계산.
+                      파일은 건드리지 않는다. 실패하면 DB 만 깨끗이 롤백된다.
+  2단계 (커밋 후, 멱등): 파일 위치 보정 — DB 의 rel_path 위치에 파일이 없으면
+                      1단계가 기억해 둔 이전 위치에서 옮긴다. 여러 번 돌려도 안전하다.
+  3단계 (커밋 후, 멱등·재시도 가능): FiftyOne 반영 — "이번에 옮긴 것"이 아니라
+                      "DB 와 FiftyOne 샘플이 어긋난 것 전부"를 갱신 대상으로 삼는다.
+                      그래서 이전 동기화에서 실패한 샘플도 다음 동기화 때 자동 재시도된다.
+
+버림은 삭제가 아니라 data/rejected/ 로 이동한다. 버림 후 FiftyOne 에서 keep 으로
+오판을 되돌렸는데 라벨이 아직 불완전하면 review 로 되돌아간다(§B, 영구 rejected 방지).
 """
 from __future__ import annotations
 
@@ -30,7 +41,11 @@ def _blank(v) -> bool:
 
 
 def read_review_state() -> list[dict]:
-    """FiftyOne 데이터셋에서 태그와 라벨을 읽어온다. 미설치/데이터셋 없으면 빈 리스트."""
+    """FiftyOne 데이터셋에서 태그·라벨·현재 filepath/stage 를 읽어온다.
+
+    filepath/stage 는 3단계에서 "DB 와 어긋난 것"을 판정하는 기준이 된다.
+    미설치/데이터셋 없으면 빈 리스트.
+    """
     try:
         import fiftyone as fo
     except Exception:  # noqa: BLE001
@@ -39,29 +54,43 @@ def read_review_state() -> list[dict]:
         return []
     ds = fo.load_dataset(DATASET)
     out = []
-    for s in ds.select_fields(["content_hash", "tags", *LABEL_FIELDS]):
+    for s in ds.select_fields(["content_hash", "tags", "filepath", "stage", *LABEL_FIELDS]):
         out.append({"content_hash": s["content_hash"], "tags": list(s.tags or []),
+                    "filepath": s["filepath"], "stage": s["stage"],
                     **{f: s[f] for f in LABEL_FIELDS}})
     return out
 
 
-def push_stage_to_fiftyone(moves: dict[str, str]) -> None:
-    """승급/버림으로 파일이 이동한 샘플의 filepath 와 stage 를 갱신 (증분, 재빌드 아님)."""
+def push_stage_to_fiftyone(moves: dict[str, tuple[str, str]]) -> int:
+    """샘플의 filepath 와 stage 를 DB 값으로 갱신 (증분, 재빌드 아님).
+
+    개별 샘플 갱신 실패는 예외를 밖으로 던지지 않고 집계해서 반환한다.
+    다음 `run_sync()` 호출 때 `_compute_fiftyone_moves()` 가 이 실패 건을 다시 대상으로 잡는다.
+    """
     if not moves:
-        return
+        return 0
     try:
         import fiftyone as fo
         from fiftyone import ViewField as F
     except Exception:  # noqa: BLE001
-        return
+        return 0
     if DATASET not in fo.list_datasets():
-        return
+        return 0
     ds = fo.load_dataset(DATASET)
+    failed = 0
     for h, (path, stage) in moves.items():
-        for s in ds.match(F("content_hash") == h):
-            s["filepath"] = path
-            s["stage"] = stage
-            s.save()
+        try:
+            matched = False
+            for s in ds.match(F("content_hash") == h):
+                s["filepath"] = path
+                s["stage"] = stage
+                s.save()
+                matched = True
+            if not matched:
+                failed += 1
+        except Exception:  # noqa: BLE001
+            failed += 1
+    return failed
 
 
 def is_promotable(img: dict) -> bool:
@@ -81,13 +110,64 @@ def _move(src: Path, dst: Path) -> None:
     shutil.move(str(src), str(dst))
 
 
+def _reconcile_files(prev_rel_path: dict[str, str]) -> int:
+    """DB 의 rel_path 위치로 파일을 맞춘다 (2단계). 여러 번 돌려도 안전(멱등).
+
+    prev_rel_path 에 없는데 목적지에도 파일이 없으면 추측하지 않고 실패로 집계한다.
+    목적지에 이미 파일이 있으면(이전 실행이 부분적으로 성공한 경우) 원본만 정리하고 성공으로 친다.
+    """
+    with conn.session() as cx:
+        rows = cx.execute("SELECT content_hash, rel_path FROM image").fetchall()
+
+    failed = 0
+    for row in rows:
+        dst = storage.DATA_ROOT / row["rel_path"]
+        src_rel = prev_rel_path.get(row["content_hash"])
+        src = storage.DATA_ROOT / src_rel if src_rel else None
+
+        if dst.exists():
+            if src is not None and src.exists() and src.resolve() != dst.resolve():
+                src.unlink(missing_ok=True)  # 같은 content_hash = 같은 내용 → 원본 정리
+            continue
+
+        if src is None or not src.exists():
+            failed += 1  # 기억해 둔 이전 위치가 없거나 거기에도 없음 — 뒤지지 않는다
+            continue
+
+        try:
+            _move(src, dst)
+        except Exception:  # noqa: BLE001
+            failed += 1
+    return failed
+
+
+def _compute_fiftyone_moves(samples: dict[str, dict]) -> dict[str, tuple[str, str]]:
+    """DB 최종 상태와 FiftyOne 샘플이 어긋난 것 전부를 3단계 반영 대상으로 계산한다.
+
+    "이번에 옮긴 것"이 아니라 전체를 비교하므로, 이전 동기화에서 실패해 filepath 가
+    여전히 옛 경로를 가리키는 샘플도 자동으로 다시 잡힌다(재시도).
+    """
+    moves: dict[str, tuple[str, str]] = {}
+    with conn.session() as cx:
+        rows = cx.execute("SELECT content_hash, rel_path, stage FROM image").fetchall()
+    for row in rows:
+        s = samples.get(row["content_hash"])
+        if not s:
+            continue
+        abs_path = str((storage.DATA_ROOT / row["rel_path"]).resolve())
+        if s.get("filepath") != abs_path or s.get("stage") != row["stage"]:
+            moves[row["content_hash"]] = (abs_path, row["stage"])
+    return moves
+
+
 def run_sync() -> dict:
-    """검수결과 반영 + 승급. 실패 시 트랜잭션 롤백."""
+    """검수결과 반영 + 승급. DB/파일이동/FiftyOne반영 3단계. 예외 대신 결과로 실패를 보고한다."""
     samples = {s["content_hash"]: s for s in read_review_state()}
     kept = rejected = promoted = 0
-    moves: dict[str, tuple[str, str]] = {}
+    prev_rel_path: dict[str, str] = {}
     now = _now()
 
+    # ---- 1단계: DB 만 갱신 (트랜잭션, 파일 건드리지 않음) ----
     with conn.session() as cx:
         cur = cx.execute("INSERT INTO sync_log (started_at) VALUES (?)", (now,))
         log_id = cur.lastrowid
@@ -114,30 +194,33 @@ def run_sync() -> dict:
 
             merged = {**dict(row), **labels, "review_state": state}
             sets = {**labels, "review_state": state}
+            modality = merged.get("modality") or "catalog"
 
             if state == "rejected":
                 rejected += 1
                 sets["stage"] = "rejected"
-                src = storage.DATA_ROOT / row["rel_path"]
-                dst = storage.DATA_ROOT / "rejected" / f"{row['content_hash']}.{row['ext']}"
-                if src.exists():
-                    _move(src, dst)
-                sets["rel_path"] = storage.rel(dst)
-                moves[row["content_hash"]] = (str(dst.resolve()), "rejected")
+                sets["rel_path"] = f"rejected/{row['content_hash']}.{row['ext']}"
             elif state == "kept":
                 kept += 1
-                if row["stage"] != "training" and is_promotable(merged):
+                if row["stage"] == "training":
+                    pass  # 이미 승급됨 — 유지 (강등 없음)
+                elif is_promotable(merged):
                     dst = storage.stage_image_path(
                         "training", merged["brand"], merged["series"],
-                        merged["model"], merged["modality"] or "catalog",
-                        row["content_hash"], row["ext"])
-                    src = storage.DATA_ROOT / row["rel_path"]
-                    if src.exists():
-                        _move(src, dst)
+                        merged["model"], modality, row["content_hash"], row["ext"])
                     sets["stage"] = "training"
                     sets["rel_path"] = storage.rel(dst)
-                    moves[row["content_hash"]] = (str(dst.resolve()), "training")
                     promoted += 1
+                elif row["stage"] == "rejected":
+                    # B: 오판 복구 — 버림 → keep 이지만 라벨이 아직 불완전 → review 로 되돌림
+                    dst = storage.stage_image_path(
+                        "review", merged["brand"], merged["series"],
+                        merged["model"], modality, row["content_hash"], row["ext"])
+                    sets["stage"] = "review"
+                    sets["rel_path"] = storage.rel(dst)
+
+            if "rel_path" in sets and sets["rel_path"] != row["rel_path"]:
+                prev_rel_path[row["content_hash"]] = row["rel_path"]
 
             sets["reviewed_at"] = now
             cols = ", ".join(f"{k}=?" for k in sets)
@@ -148,5 +231,17 @@ def run_sync() -> dict:
         cx.execute("""UPDATE sync_log SET finished_at=?, kept=?, rejected=?, promoted=?, note=?
                       WHERE id=?""", (_now(), kept, rejected, promoted, note, log_id))
 
-    push_stage_to_fiftyone(moves)
-    return {"kept": kept, "rejected": rejected, "promoted": promoted, "note": note}
+    # ---- 2단계: 파일 위치 보정 (커밋 후, 멱등) ----
+    move_failed = _reconcile_files(prev_rel_path)
+
+    # ---- 3단계: FiftyOne 반영 (커밋 후, 멱등·재시도 가능) ----
+    moves = _compute_fiftyone_moves(samples)
+    fiftyone_failed = push_stage_to_fiftyone(moves) or 0
+
+    if move_failed or fiftyone_failed:
+        note = f"{note}, 파일이동 실패 {move_failed}건, FiftyOne반영 실패 {fiftyone_failed}건"
+        with conn.session() as cx:
+            cx.execute("UPDATE sync_log SET note=? WHERE id=?", (note, log_id))
+
+    return {"kept": kept, "rejected": rejected, "promoted": promoted, "note": note,
+            "move_failed": move_failed, "fiftyone_failed": fiftyone_failed}

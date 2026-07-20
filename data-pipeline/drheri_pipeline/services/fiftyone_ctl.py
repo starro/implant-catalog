@@ -32,14 +32,19 @@ def stop() -> list[str]:
 
 
 def kill_orphans() -> int:
-    """cmdline 패턴으로 잔여 프로세스를 종료. 종료시킨 패턴 수를 반환."""
+    """cmdline 패턴으로 잔여 프로세스를 종료. 종료 대상이 된 실제 프로세스 수를 반환.
+
+    kill 신호를 보내기 전에 pgrep 으로 매칭되는 PID 개수를 세어 합산한다
+    (pkill 의 반환코드는 "하나 이상 매칭됐는지"만 알려줄 뿐 개수를 주지 않는다).
+    """
     killed = 0
     for pat in ORPHAN_PATTERNS:
-        r = _run(["pkill", "-TERM", "-f", pat])
-        if r.returncode == 0:                 # 0 = 하나 이상 종료됨
-            killed += 1
-    for pat in ORPHAN_PATTERNS:               # TERM 으로 안 죽은 것만 KILL
-        _run(["pkill", "-KILL", "-f", pat])
+        r = _run(["pgrep", "-f", pat])
+        killed += len([p for p in (r.stdout or "").split() if p])
+    for pat in ORPHAN_PATTERNS:
+        _run(["pkill", "-TERM", "-f", pat])
+    for pat in ORPHAN_PATTERNS:               # 생존여부 재확인 없이 곧바로 KILL 로 마무리한다.
+        _run(["pkill", "-KILL", "-f", pat])   # 과거 사고(좀비 잔존) 재발을 막기 위해 항상 확실히 죽인다.
     return killed
 
 
