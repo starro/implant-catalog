@@ -20,7 +20,7 @@ dependencies = [
 #   (--only-binary=stringzilla: stringzilla 를 소스빌드 대신 wheel 로 → 컴파일 회피. 검증: 서버 CPU에서도 정상 추출)
 [project.optional-dependencies]
 extract = ["doclayout-yolo>=0.0.4"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -31,3 +31,6 @@ include = ["drheri_pipeline*"]
 
 [tool.dagster]
 module_name = "drheri_pipeline.definitions"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
