@@ -72,3 +72,137 @@ def test_same_image_from_two_documents_has_two_origins(data_root):
         orgs = cx.execute("SELECT COUNT(*) c FROM image_origin").fetchone()["c"]
     assert imgs == 1
     assert orgs == 2
+
+
+def test_update_document_changes_editable_fields(data_root):
+    """허용 필드(name, memo, default_dpi 등)가 실제로 업데이트되고 updated_at이 갱신된다."""
+    with conn.session() as cx:
+        doc = _doc(cx)
+        row_before = cx.execute("SELECT name, memo, default_dpi, updated_at FROM document WHERE id=?", (doc,)).fetchone()
+
+    import time
+    time.sleep(0.01)  # 시간 경과 명확히
+
+    with conn.session() as cx:
+        writes.update_document(cx, doc, name="새 이름", memo="새로운 메모", default_dpi=300)
+        row_after = cx.execute("SELECT name, memo, default_dpi, updated_at FROM document WHERE id=?", (doc,)).fetchone()
+
+    assert row_after["name"] == "새 이름"
+    assert row_after["memo"] == "새로운 메모"
+    assert row_after["default_dpi"] == 300
+    assert row_after["updated_at"] > row_before["updated_at"]
+
+
+def test_update_document_ignores_non_editable_fields(data_root):
+    """화이트리스트 밖 필드(url, status 등)는 무시되고 DB 값이 그대로이다."""
+    with conn.session() as cx:
+        doc = _doc(cx, "https://ex.com/original.pdf")
+        original_url = cx.execute("SELECT url, status FROM document WHERE id=?", (doc,)).fetchone()
+
+    with conn.session() as cx:
+        # url과 status는 화이트리스트에 없으므로 무시되어야 함
+        writes.update_document(cx, doc, url="https://ex.com/hacked.pdf", status="archived", name="수정됨")
+        row = cx.execute("SELECT url, status, name FROM document WHERE id=?", (doc,)).fetchone()
+
+    # url과 status는 그대로, name만 변경됨
+    assert row["url"] == original_url["url"]
+    assert row["status"] == original_url["status"]
+    assert row["name"] == "수정됨"
+
+
+def test_update_document_converts_brand_raw_to_brand_id(data_root):
+    """brand_raw를 전달하면 새 브랜드로 변환되고 brand_id가 갱신된다."""
+    with conn.session() as cx:
+        doc = _doc(cx, "https://ex.com/doc1.pdf")
+        row_before = cx.execute("SELECT brand_id FROM document WHERE id=?", (doc,)).fetchone()
+        brand_before = row_before["brand_id"]
+
+    with conn.session() as cx:
+        writes.update_document(cx, doc, brand_raw="Dentium")
+        row_after = cx.execute("SELECT brand_id FROM document WHERE id=?", (doc,)).fetchone()
+        brand_after = row_after["brand_id"]
+
+    assert brand_before != brand_after
+    with conn.session() as cx:
+        brand_name = cx.execute("SELECT name_norm FROM brand WHERE id=?", (brand_after,)).fetchone()
+    assert brand_name["name_norm"] == "DENTIUM"
+
+
+def test_archive_document_sets_status_and_updates_timestamp(data_root):
+    """archive_document가 status를 'archived'로 설정하고 updated_at을 갱신한다."""
+    with conn.session() as cx:
+        doc = _doc(cx)
+        row_before = cx.execute("SELECT status, updated_at FROM document WHERE id=?", (doc,)).fetchone()
+        assert row_before["status"] == "active"
+
+    import time
+    time.sleep(0.01)
+
+    with conn.session() as cx:
+        writes.archive_document(cx, doc)
+        row_after = cx.execute("SELECT status, updated_at FROM document WHERE id=?", (doc,)).fetchone()
+
+    assert row_after["status"] == "archived"
+    assert row_after["updated_at"] > row_before["updated_at"]
+
+
+def test_record_image_preserves_manual_labels_on_rescan(data_root):
+    """재수집 시 사람이 고친 라벨을 덮어쓰지 않는다.
+
+    1. 수집: content_hash=h1, brand=Osstem, series=_unknown, model=_unknown
+    2. 사람 검수: brand=DENTIUM, series=TSIII, model=TSIII4010S로 수정
+    3. 재수집: 같은 content_hash, 다른 라벨(Amann Girrbach, GC, GC55)
+    4. 검증: 사람이 고친 라벨 유지
+    """
+    rec_v1 = {
+        "content_hash": "h_manual_test", "path": "review/x/h_manual.png",
+        "brand": "Osstem", "series": "_unknown", "surface": None, "model": "_unknown",
+        "modality": "catalog", "page_no": 1, "bbox": [0, 0, 10, 10],
+    }
+    rec_v2 = {
+        "content_hash": "h_manual_test",  # 같은 hash
+        "path": "review/y/h_manual_v2.png",
+        "brand": "Amann Girrbach",  # 다른 라벨
+        "series": "GC",
+        "surface": None,
+        "model": "GC55",
+        "modality": "catalog",
+        "page_no": 2,
+        "bbox": [5, 5, 15, 15],
+    }
+
+    with conn.session() as cx:
+        doc = _doc(cx)
+        run1 = writes.create_run(cx, doc, 0.35, 200, "")
+        # 첫 번째 수집
+        writes.record_image(cx, rec_v1, doc, run1)
+        img_v1 = cx.execute(
+            "SELECT brand, series, model FROM image WHERE content_hash=?",
+            ("h_manual_test",)
+        ).fetchone()
+
+        # 사람이 검수 후 라벨 수정
+        cx.execute(
+            "UPDATE image SET brand=?, series=?, model=? WHERE content_hash=?",
+            ("DENTIUM", "TSIII", "TSIII4010S", "h_manual_test")
+        )
+        img_after_manual = cx.execute(
+            "SELECT brand, series, model FROM image WHERE content_hash=?",
+            ("h_manual_test",)
+        ).fetchone()
+        assert img_after_manual["brand"] == "DENTIUM"
+        assert img_after_manual["model"] == "TSIII4010S"
+
+    # 재수집 — 다른 라벨로 들어옴
+    with conn.session() as cx:
+        run2 = writes.create_run(cx, doc, 0.35, 200, "")
+        writes.record_image(cx, rec_v2, doc, run2)
+        img_after_rescan = cx.execute(
+            "SELECT brand, series, model FROM image WHERE content_hash=?",
+            ("h_manual_test",)
+        ).fetchone()
+
+    # 사람이 고친 라벨이 유지되어야 함
+    assert img_after_rescan["brand"] == "DENTIUM"
+    assert img_after_rescan["series"] == "TSIII"
+    assert img_after_rescan["model"] == "TSIII4010S"
