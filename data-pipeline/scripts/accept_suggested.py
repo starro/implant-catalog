@@ -4,7 +4,7 @@
   1) bash scripts/review.sh                # App, view 'needs-label'
   2) App에서 suggested_series 가 맞는 figure 선택 → 태그 'accept'
   3) bash scripts/accept_suggested.sh      # 선택분 series = suggested_series 로 확정
-  4) bash scripts/promote_reviewed.sh      # series 채워진 것 → training
+  4) POST /api/sync ("검수결과 반영")       # series 채워진 것 → training (구버전 승급 스크립트 대체)
 
 제안이 틀린 건 'accept' 안 하고 series 필드를 직접 수정하면 됨.
 """

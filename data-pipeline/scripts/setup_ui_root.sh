@@ -31,6 +31,8 @@ Environment=PATH=/home/$U/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=$H
 Environment=DATA_ROOT=$H/data
 Environment=FIFTYONE_DATABASE_VALIDATION=false
+Environment=HOOK_TOKEN=drheri-dev
+Environment=UI_BASE_URL=http://127.0.0.1:3000
 Environment=DAGSTER_HOST=localhost
 Environment=DAGSTER_UI_PORT=3333
 Environment=DAGSTER_URL=http://58.229.105.3:3333

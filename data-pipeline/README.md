@@ -56,3 +56,53 @@ drheri_pipeline/
     ├── site_xray.py   # whatimplantisthat API 수집
     └── catalog_pdf.py # PDF 다운로드 + DocLayout-YOLO 추출
 ```
+
+## 재설계 UI 배포 절차
+
+Jinja2 템플릿(`ui/templates/index.html`) · `ui/registry.py` · `scripts/promote_reviewed.*` 를
+제거하고 Svelte SPA 정적 서빙(`web/dist`)으로 전환했다. `drheri_pipeline/ui/app.py::create_app()` 가
+`/api/*` 는 기존 라우트 그대로, `/` 이하는 `web/dist` 를 정적으로 서빙한다(빌드 전이면 안내 JSON 을 반환).
+
+개발서버(58.229.105.3, `jay8126`)에 반영할 때는 순서대로 실행한다.
+
+```bash
+cd ~/Dr.HERi/data-pipeline
+git pull
+
+# 1) 백필 — 먼저 백업
+cp data/manifest.jsonl data/manifest.jsonl.bak
+cp data/sources.jsonl data/sources.jsonl.bak
+.venv/bin/python -m scripts.backfill_db
+
+# 2) 화면 빌드
+cd web && npm install && npm run build && cd ..
+
+# 3) saved view 생성 (문서별 doc-<id> 뷰 + 버림 전용 뷰)
+FIFTYONE_DATABASE_VALIDATION=false .venv/bin/python -m scripts.fiftyone_saved_views
+
+# 4) 서비스 재기동 (root: su -)
+su - -c "bash /home/jay8126/Dr.HERi/data-pipeline/scripts/setup_ui_root.sh"
+su - -c "systemctl restart drheri-dagster drheri-ui"
+```
+
+검증:
+
+```bash
+curl -s http://127.0.0.1:3000/api/health
+curl -s http://127.0.0.1:3000/api/sources | head -c 400
+```
+
+기대값: 첫 명령이 `{"ok": true, "data": {"db": true, ...}}`, 두 번째가 백필된 브랜드·문서 트리.
+
+브라우저에서 `http://58.229.105.3:3000` 을 열어 아래를 확인한다.
+
+1. 소스 목록에 브랜드 › 문서와 퍼널이 보이는가
+2. 문서 상세에서 `수집 실행` → 완료 시 **새로고침 없이** 토스트가 뜨고 퍼널이 갱신되는가
+3. FiftyOne 에서 태그를 찍고 `검수결과 반영` 을 누르면 학습/버림 숫자가 바뀌는가
+4. 재기동 후 `pgrep -af "[f]iftyone" | wc -l` 이 1인가
+
+> 참고: `scripts/setup_ui_root.sh` / `scripts/setup_systemd_root.sh` 의 실제 배포 경로 변수(`H`)는
+> `/home/jay8126/drheri-pipeline` 다(스크립트 상단의 `U`/`H` 변수 참고). 저장소를 다른 경로에
+> 클론했다면 두 스크립트의 `H` 값을 먼저 맞춰야 한다.
+
+> 위 절차는 Windows 로컬 개발 환경에서는 실행하지 않았다(개발서버 접속 정보 없음) — 문서화만 해 둔다.

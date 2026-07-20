@@ -36,6 +36,8 @@ Environment=DATA_ROOT=$H/data
 Environment=DAGSTER_HOME=$H/.dagster_home
 Environment=HF_HOME=$H/hf_cache
 Environment=FIFTYONE_DATABASE_VALIDATION=false
+Environment=HOOK_TOKEN=drheri-dev
+Environment=UI_BASE_URL=http://127.0.0.1:3000
 ExecStart=$PY -m dagster dev -m drheri_pipeline.definitions --host 0.0.0.0 --port 3333
 Restart=on-failure
 RestartSec=10
