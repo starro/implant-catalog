@@ -6,20 +6,10 @@ from starlette.requests import Request
 from starlette.routing import Route
 
 from drheri_pipeline.db import conn, queries, writes
-from drheri_pipeline.ui.envelope import ApiError, ok
+from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 
 _UPDATE_MAP = {"name": "name", "memo": "memo", "conf": "default_conf",
                "dpi": "default_dpi", "pages": "default_pages", "series": "default_series"}
-
-
-async def _json(request: Request) -> dict:
-    try:
-        body = await request.json()
-    except Exception as e:  # noqa: BLE001
-        raise ApiError("invalid_request", "JSON 본문을 해석할 수 없습니다") from e
-    if not isinstance(body, dict):
-        raise ApiError("invalid_request", "JSON 객체가 필요합니다")
-    return body
 
 
 def _list_tree() -> list[dict]:
@@ -45,7 +35,7 @@ async def check_url(request: Request):
 
 
 async def create_source(request: Request):
-    body = await _json(request)
+    body = await read_json(request)
     url = (body.get("url") or "").strip()
     if not url:
         raise ApiError("invalid_request", "URL 을 입력하세요")
@@ -87,7 +77,7 @@ async def get_source(request: Request):
 
 async def update_source(request: Request):
     doc_id = request.path_params["doc_id"]
-    body = await _json(request)
+    body = await read_json(request)
     fields = {_UPDATE_MAP[k]: v for k, v in body.items() if k in _UPDATE_MAP}
     if "brand" in body and (body["brand"] or "").strip():
         fields["brand_raw"] = body["brand"].strip()

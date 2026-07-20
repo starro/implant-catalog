@@ -83,6 +83,19 @@ def test_settings_roundtrip(client):
     assert after["DEFAULT_CONF"] == "0.5"
 
 
+def test_settings_rejects_malformed_json_with_400(client):
+    """깨진 JSON 본문은 500 internal_error 가 아니라 400 invalid_request 로 응답해야 한다(A-2).
+
+    sources.py/runs.py 와 동일하게 envelope.read_json 을 거치는지 검증한다.
+    """
+    r = client.post("/api/settings", content=b"{not valid json",
+                    headers={"Content-Type": "application/json"})
+    assert r.status_code == 400
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "invalid_request"
+
+
 def test_fiftyone_restart_route(client, monkeypatch):
     monkeypatch.setattr(ops_api.fiftyone_ctl, "restart",
                         lambda: {"ok": True, "orphans_killed": 2, "detail": "OK"})

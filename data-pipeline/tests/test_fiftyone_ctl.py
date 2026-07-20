@@ -81,3 +81,27 @@ def test_kill_orphans_returns_pid_count_from_pgrep_not_pattern_count(monkeypatch
     n = fiftyone_ctl.kill_orphans()
 
     assert n == 3
+
+
+def test_stop_uses_current_env_service_name_not_import_time_value(monkeypatch):
+    """FIFTYONE_SERVICE 를 런타임에 바꾸면 즉시 반영돼야 한다 — 모듈 import 시점 상수면 안 된다.
+
+    설정 화면에서 서비스명을 바꿔도 fiftyone_ctl 이 모듈 로드 시점에 고정된 이름을 쓰면
+    응답은 성공으로 오지만 실제 systemctl 대상은 바뀌지 않는 버그(A-1)를 검증한다.
+    """
+    monkeypatch.setenv("FIFTYONE_SERVICE", "custom-fiftyone-svc")
+
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(fiftyone_ctl.subprocess, "run",
+                        lambda cmd, **kw: (calls.append(cmd), R())[1])
+    fiftyone_ctl.stop()
+
+    joined = " ".join(" ".join(c) for c in calls)
+    assert "custom-fiftyone-svc" in joined
+    assert "drheri-fiftyone" not in joined

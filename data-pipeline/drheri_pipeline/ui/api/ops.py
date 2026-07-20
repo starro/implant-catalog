@@ -15,7 +15,7 @@ from starlette.routing import Route
 from drheri_pipeline import storage
 from drheri_pipeline.db import conn, queries
 from drheri_pipeline.services import export, fiftyone_ctl, sync
-from drheri_pipeline.ui.envelope import ApiError, ok
+from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 from drheri_pipeline.ui.events import broadcaster
 
 SETTINGS_KEYS = ("DEFAULT_CONF", "DEFAULT_DPI", "DATA_ROOT", "DAGSTER_URL",
@@ -49,9 +49,7 @@ async def get_settings(request: Request):
 
 
 async def post_settings(request: Request):
-    body = await request.json()
-    if not isinstance(body, dict):
-        raise ApiError("invalid_request", "JSON 객체가 필요합니다")
+    body = await read_json(request)
 
     def _write():
         cur = _read_settings()

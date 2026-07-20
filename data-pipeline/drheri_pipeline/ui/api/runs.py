@@ -16,7 +16,7 @@ from starlette.routing import Route
 from drheri_pipeline.db import conn, queries, writes
 from drheri_pipeline.services import fiftyone_ctl
 from drheri_pipeline.ui import dagster_client
-from drheri_pipeline.ui.envelope import ApiError, ok
+from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 from drheri_pipeline.ui.events import broadcaster
 
 HOOK_TOKEN = os.getenv("HOOK_TOKEN", "drheri-dev")
@@ -24,17 +24,9 @@ DAGSTER_TERMINAL = {"SUCCESS", "FAILURE", "CANCELED"}
 STALL_LIMIT = timedelta(minutes=30)
 
 
-async def _json(request: Request) -> dict:
-    try:
-        body = await request.json()
-    except Exception as e:  # noqa: BLE001
-        raise ApiError("invalid_request", "JSON 본문을 해석할 수 없습니다") from e
-    return body if isinstance(body, dict) else {}
-
-
 async def collect(request: Request):
     doc_id = request.path_params["doc_id"]
-    body = await _json(request)
+    body = await read_json(request, require_dict=False)
 
     def _prepare():
         with conn.session() as cx:
@@ -135,7 +127,7 @@ async def run_log(request: Request):
 async def hook_run_finished(request: Request):
     if request.headers.get("X-Hook-Token") != HOOK_TOKEN:
         raise ApiError("unauthorized", "훅 토큰이 올바르지 않습니다", status=401)
-    body = await _json(request)
+    body = await read_json(request, require_dict=False)
     ui_run_id = int(body.get("ui_run_id") or 0)
     status = (body.get("status") or "").upper()
     if not ui_run_id or status not in DAGSTER_TERMINAL:

@@ -14,12 +14,21 @@ import subprocess
 import urllib.error
 import urllib.request
 
-SERVICE = os.getenv("FIFTYONE_SERVICE", "drheri-fiftyone")
-PORT = int(os.getenv("FIFTYONE_PORT", "5151"))
-HEALTH_URL = os.getenv("FIFTYONE_HEALTH_URL", f"http://127.0.0.1:{PORT}/")
-
 # 브래킷 표기: pkill -f "[f]iftyone.server" 는 자기 자신의 cmdline 과 매치되지 않는다.
 ORPHAN_PATTERNS = ["[f]iftyone.server", "[f]iftyone.core.service", "[s]erve_fiftyone_service"]
+
+
+def _service() -> str:
+    """호출 시점에 환경변수를 읽는다 — 설정 화면에서 바꾼 값이 즉시 반영되도록."""
+    return os.getenv("FIFTYONE_SERVICE", "drheri-fiftyone")
+
+
+def _port() -> int:
+    return int(os.getenv("FIFTYONE_PORT", "5151"))
+
+
+def _health_url() -> str:
+    return os.getenv("FIFTYONE_HEALTH_URL", f"http://127.0.0.1:{_port()}/")
 
 
 def _run(cmd: list[str], timeout: int = 60):
@@ -27,8 +36,9 @@ def _run(cmd: list[str], timeout: int = 60):
 
 
 def stop() -> list[str]:
-    r = _run(["sudo", "-n", "systemctl", "stop", SERVICE], timeout=90)
-    return [f"systemctl stop {SERVICE} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]
+    service = _service()
+    r = _run(["sudo", "-n", "systemctl", "stop", service], timeout=90)
+    return [f"systemctl stop {service} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]
 
 
 def kill_orphans() -> int:
@@ -49,18 +59,19 @@ def kill_orphans() -> int:
 
 
 def start() -> None:
-    _run(["sudo", "-n", "systemctl", "start", SERVICE], timeout=90)
+    _run(["sudo", "-n", "systemctl", "start", _service()], timeout=90)
 
 
 def health() -> dict:
+    port = _port()
     try:
-        with urllib.request.urlopen(HEALTH_URL, timeout=10) as resp:
+        with urllib.request.urlopen(_health_url(), timeout=10) as resp:
             ok = 200 <= resp.status < 400
-            return {"ok": ok, "port": PORT, "detail": f"HTTP {resp.status}"}
+            return {"ok": ok, "port": port, "detail": f"HTTP {resp.status}"}
     except urllib.error.URLError as e:
-        return {"ok": False, "port": PORT, "detail": f"연결 실패: {e.reason}"}
+        return {"ok": False, "port": port, "detail": f"연결 실패: {e.reason}"}
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "port": PORT, "detail": f"{e.__class__.__name__}: {e}"}
+        return {"ok": False, "port": port, "detail": f"{e.__class__.__name__}: {e}"}
 
 
 def restart() -> dict:
