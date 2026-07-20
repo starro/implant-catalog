@@ -94,6 +94,52 @@ def test_hook_failure_does_not_restart_fiftyone(client, monkeypatch):
     assert detail["runs"][0]["error"] == "PDF 다운로드 실패"
 
 
+def test_hook_does_not_overwrite_extracted_when_hook_sends_zero(client):
+    """Critical 3: 센서는 실제 추출 개수를 모르므로 항상 extracted=0 을 보낸다.
+    record_ingest() 가 이미 기록해 둔 값을 훅이 0으로 덮어쓰면 안 된다."""
+    doc = _doc(client)
+    ui_run_id = client.post(f"/api/sources/{doc}/collect", json={}).json()["data"]["ui_run_id"]
+    with conn.session() as cx:
+        cx.execute("UPDATE run SET extracted=? WHERE id=?", (12, ui_run_id))
+
+    r = client.post("/api/hooks/run-finished", headers={"X-Hook-Token": "drheri-dev"},
+                    json={"ui_run_id": ui_run_id, "status": "SUCCESS", "extracted": 0, "error": None})
+    assert r.json()["ok"] is True
+    detail = client.get(f"/api/sources/{doc}").json()["data"]
+    assert detail["runs"][0]["extracted"] == 12
+    assert detail["runs"][0]["status"] == "SUCCESS"
+
+
+def test_hook_updates_extracted_when_hook_sends_nonzero(client):
+    """대조군: 훅이 0이 아닌 값을 보내면(과거 경로 호환 등) 그 값으로 갱신돼야 한다."""
+    doc = _doc(client)
+    ui_run_id = client.post(f"/api/sources/{doc}/collect", json={}).json()["data"]["ui_run_id"]
+    with conn.session() as cx:
+        cx.execute("UPDATE run SET extracted=? WHERE id=?", (12, ui_run_id))
+
+    client.post("/api/hooks/run-finished", headers={"X-Hook-Token": "drheri-dev"},
+                json={"ui_run_id": ui_run_id, "status": "SUCCESS", "extracted": 20, "error": None})
+    detail = client.get(f"/api/sources/{doc}").json()["data"]
+    assert detail["runs"][0]["extracted"] == 20
+
+
+def test_hook_broadcasts_extracted_matching_db_value_not_raw_zero(client, monkeypatch):
+    """run.finished SSE 이벤트의 extracted 는 훅이 보낸 원시값(0)이 아니라 DB 최종값이어야 한다."""
+    captured = {}
+    monkeypatch.setattr(runs_api.broadcaster, "publish",
+                        lambda event, payload: captured.update(event=event, payload=payload))
+    doc = _doc(client)
+    ui_run_id = client.post(f"/api/sources/{doc}/collect", json={}).json()["data"]["ui_run_id"]
+    with conn.session() as cx:
+        cx.execute("UPDATE run SET extracted=? WHERE id=?", (7, ui_run_id))
+
+    client.post("/api/hooks/run-finished", headers={"X-Hook-Token": "drheri-dev"},
+                json={"ui_run_id": ui_run_id, "status": "SUCCESS", "extracted": 0, "error": None})
+
+    assert captured["event"] == "run.finished"
+    assert captured["payload"]["extracted"] == 7
+
+
 def test_latest_reconciles_running_run_from_dagster(client, monkeypatch):
     doc = _doc(client)
     client.post(f"/api/sources/{doc}/collect", json={})

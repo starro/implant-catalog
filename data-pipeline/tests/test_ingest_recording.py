@@ -45,3 +45,20 @@ def test_record_ingest_is_idempotent_on_recollect(data_root):
     with conn.session() as cx:
         f = queries.funnel_for_document(cx, doc)
     assert f["extracted"] == 2
+
+
+def test_record_ingest_updates_run_extracted(data_root):
+    """Critical 3: 수집 이력의 '추출' 수가 항상 0으로 남는 버그 — record_ingest() 가
+    같은 트랜잭션에서 run.extracted 를 갱신해야 한다."""
+    doc, run = _doc_and_run()
+    assets.record_ingest(RECORDS, doc, run)
+    with conn.session() as cx:
+        row = cx.execute("SELECT extracted FROM run WHERE id=?", (run,)).fetchone()
+    assert row["extracted"] == 2
+
+
+def test_record_ingest_skips_run_update_when_no_ui_run_id(data_root):
+    """UI 미경유(ui_run_id=0)인 직접 실행은 run 갱신 대상이 없으므로 건너뛴다(예외 없이)."""
+    doc, _run = _doc_and_run()
+    n = assets.record_ingest(RECORDS, doc, 0)
+    assert n == 2

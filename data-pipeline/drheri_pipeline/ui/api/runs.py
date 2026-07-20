@@ -133,16 +133,20 @@ async def hook_run_finished(request: Request):
     if not ui_run_id or status not in DAGSTER_TERMINAL:
         raise ApiError("invalid_request", "ui_run_id 와 status 가 필요합니다")
 
-    extracted = int(body.get("extracted") or 0)
+    hook_extracted = int(body.get("extracted") or 0)
     error = body.get("error")
 
     def _finish():
         with conn.session() as cx:
+            row = cx.execute("SELECT document_id, extracted FROM run WHERE id=?",
+                             (ui_run_id,)).fetchone()
+            # 센서는 실제 추출 개수를 모르므로 훅 본문의 extracted 는 항상 0 이다.
+            # 그 경우 record_ingest() 가 수집 중에 이미 기록해 둔 run.extracted 값을 덮어쓰지 않는다.
+            extracted = hook_extracted if hook_extracted else (row["extracted"] if row else 0)
             writes.finish_run(cx, ui_run_id, status, extracted, error)
-            row = cx.execute("SELECT document_id FROM run WHERE id=?", (ui_run_id,)).fetchone()
-            return row["document_id"] if row else None
+            return (row["document_id"] if row else None), extracted
 
-    doc_id = await run_in_threadpool(_finish)
+    doc_id, extracted = await run_in_threadpool(_finish)
 
     restart = None
     if status == "SUCCESS":

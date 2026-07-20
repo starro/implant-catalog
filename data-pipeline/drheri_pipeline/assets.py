@@ -16,13 +16,19 @@ from .sources import catalog_pdf, site_xray
 
 
 def record_ingest(records: list, document_id: int, ui_run_id: int) -> int:
-    """수집 결과를 운영 DB(image + image_origin)에 기록. document_id 가 0이면 건너뛴다."""
+    """수집 결과를 운영 DB(image + image_origin)에 기록. document_id 가 0이면 건너뛴다.
+
+    ui_run_id 가 있으면 같은 트랜잭션에서 run.extracted 도 갱신한다 — 훅(sensors.hook_payload)은
+    실제 추출 개수를 모르고 항상 0을 보내므로, "추출" 수의 진짜 출처는 여기뿐이다.
+    """
     if not records or not document_id:
         return 0
     db_conn.migrate()
     with db_conn.session() as cx:
         for r in records:
             db_writes.record_image(cx, r, document_id, ui_run_id or None)
+        if ui_run_id:
+            cx.execute("UPDATE run SET extracted=? WHERE id=?", (len(records), ui_run_id))
     return len(records)
 
 
