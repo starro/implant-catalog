@@ -11,11 +11,27 @@ def test_migrate_creates_all_tables(data_root):
 
 
 def test_migrate_is_idempotent(data_root):
+    # 처음 migrate 실행
     conn.migrate()
+
+    # brand 테이블에 테스트 데이터 INSERT
+    with conn.session() as cx:
+        cx.execute(
+            "INSERT INTO brand (name_norm, name_raw, created_at) VALUES (?, ?, ?)",
+            ("OSSTEM IMPLANT", "Osstem", "2025-07-20T12:00:00Z")
+        )
+
+    # 두 번째 migrate 실행 (멱등성 검증)
     conn.migrate()
+
+    # 데이터가 그대로 남아있는지 확인
     with conn.session() as cx:
         n = cx.execute("SELECT COUNT(*) c FROM brand").fetchone()["c"]
-    assert n == 0
+        assert n == 1, "멱등 마이그레이션 후 행 개수가 1이어야 함"
+
+        # 데이터 내용이 동일한지 확인
+        brand = cx.execute("SELECT name_norm FROM brand WHERE id = 1").fetchone()
+        assert brand["name_norm"] == "OSSTEM IMPLANT", "데이터가 변경되지 않아야 함"
 
 
 def test_wal_and_foreign_keys_enabled(data_root):
