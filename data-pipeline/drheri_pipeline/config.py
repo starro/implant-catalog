@@ -14,6 +14,8 @@ class SiteXrayConfig(Config):
     modality: str = "xray"         # images[].meta radioimg → xray
     auto_approve: bool = True      # 데모: 검수 건너뛰고 training 까지 완주
     limit: int = 0                 # 0=전체, >0 이면 이미지 개수 상한 (테스트용)
+    document_id: int = 0           # UI 가 만든 document.id (0 = UI 미경유 직접 실행)
+    ui_run_id: int = 0             # UI 가 만든 run.id (0 = UI 미경유)
 
 
 class CatalogPdfConfig(Config):
@@ -27,3 +29,5 @@ class CatalogPdfConfig(Config):
     conf: float = 0.35
     min_image_px: int = 120
     pages: str = ""                # "" = 전체, "1,2,5" = 특정 페이지 (테스트용)
+    document_id: int = 0           # UI 가 만든 document.id (0 = UI 미경유 직접 실행)
+    ui_run_id: int = 0             # UI 가 만든 run.id (0 = UI 미경유)
