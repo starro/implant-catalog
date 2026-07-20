@@ -1,0 +1,32 @@
+[project]
+name = "drheri-pipeline"
+version = "0.1.0"
+description = "Dr.HERi 임플란트 이미지 수집·라벨링 파이프라인 (Dagster + DocLayout-YOLO + FiftyOne)"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "dagster==1.13.9",
+    "dagster-webserver==1.13.9",
+    "httpx>=0.27",
+    "pillow>=10.0",
+    "pymupdf>=1.24",
+    "huggingface_hub>=0.24",
+    "fiftyone>=1.0",
+    "python-multipart>=0.0.9",   # 관리 UI 폼 파싱 (Starlette request.form)
+]
+
+# DocLayout-YOLO(카탈로그 PDF figure 추출)는 deep dep(stringzilla) 가 구버전 gcc(CentOS8 등)에서
+# 소스컴파일 실패 → 선택적 extra 로 분리. catalog_pdf 는 lazy-import 라 코어(Dagster/FiftyOne)엔 불필요.
+#   설치:  uv pip install -e ".[extract]" --only-binary=stringzilla
+#   (--only-binary=stringzilla: stringzilla 를 소스빌드 대신 wheel 로 → 컴파일 회피. 검증: 서버 CPU에서도 정상 추출)
+[project.optional-dependencies]
+extract = ["doclayout-yolo>=0.0.4"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["drheri_pipeline*"]
+
+[tool.dagster]
+module_name = "drheri_pipeline.definitions"

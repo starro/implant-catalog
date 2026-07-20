@@ -1,0 +1,20 @@
+# venv / 빌드
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+
+# 데이터 (raw/review/training 산출물 — 코드에 커밋하지 않음)
+data/
+
+# Dagster 런타임
+.dagster_home/
+tmp*/
+*.log
+
+# 시크릿
+.env
+
+# 모델 캐시
+hf_cache/
