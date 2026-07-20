@@ -62,8 +62,16 @@ def backfill() -> dict:
             if not url:
                 continue
             doc_id = _ensure_document(cx, url, s.get("brand") or "Osstem", s)
-            dup = cx.execute("SELECT id FROM run WHERE document_id=? AND started_at=?",
-                             (doc_id, s.get("created_at") or "")).fetchone()
+            # 중복 판정은 dagster_run_id(jsonl 의 run_id) 를 우선 키로 쓴다 — created_at 이
+            # 없거나(개발서버 sources.jsonl 에 흔함) 여러 건이 같은 값으로 겹치면, started_at 만으로는
+            # 서로 다른 수집을 하나로 합쳐버린다. run_id 가 없을 때만 기존 방식으로 폴백한다.
+            run_key = s.get("run_id")
+            if run_key:
+                dup = cx.execute("SELECT id FROM run WHERE document_id=? AND dagster_run_id=?",
+                                 (doc_id, run_key)).fetchone()
+            else:
+                dup = cx.execute("SELECT id FROM run WHERE document_id=? AND started_at=?",
+                                 (doc_id, s.get("created_at") or "")).fetchone()
             if dup:
                 continue
             cx.execute(
