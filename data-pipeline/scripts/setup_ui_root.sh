@@ -7,8 +7,8 @@ U=jay8126
 H=/home/$U/drheri-pipeline
 PY=$H/.venv/bin/python
 
-echo "=== 1) UI 가 FiftyOne 재기동할 수 있게 sudo 1줄 허용 ==="
-echo "$U ALL=(root) NOPASSWD: /usr/bin/systemctl restart drheri-fiftyone" > /etc/sudoers.d/drheri-ui
+echo "=== 1) UI 가 FiftyOne 정지/기동/재기동할 수 있게 sudo 권한 허용 ==="
+echo "$U ALL=(root) NOPASSWD: /usr/bin/systemctl stop drheri-fiftyone, /usr/bin/systemctl start drheri-fiftyone, /usr/bin/systemctl restart drheri-fiftyone" > /etc/sudoers.d/drheri-ui
 chmod 440 /etc/sudoers.d/drheri-ui
 visudo -c >/dev/null && echo "  sudoers OK"
 

@@ -35,10 +35,16 @@ def _run(cmd: list[str], timeout: int = 60):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
-def stop() -> list[str]:
+def stop() -> dict:
+    """FiftyOne 서비스 정지. 반환: {"ok": bool, "lines": [...]}.
+
+    ok=False 는 systemctl 실패(예: sudoers 화이트리스트에 없는 verb 로 인한 sudo 거부)를 뜻한다.
+    restart() 는 이 값을 보고 kill_orphans() 강행 여부를 결정한다(안전장치, 아래 참고).
+    """
     service = _service()
     r = _run(["sudo", "-n", "systemctl", "stop", service], timeout=90)
-    return [f"systemctl stop {service} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]
+    return {"ok": r.returncode == 0,
+            "lines": [f"systemctl stop {service} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]}
 
 
 def kill_orphans() -> int:
@@ -58,8 +64,15 @@ def kill_orphans() -> int:
     return killed
 
 
-def start() -> None:
-    _run(["sudo", "-n", "systemctl", "start", _service()], timeout=90)
+def start() -> dict:
+    """FiftyOne 서비스 기동. 반환: {"ok": bool, "lines": [...]}.
+
+    과거엔 반환값을 통째로 버려서(None) sudo 거부 같은 명백한 실패도 restart() 결과에 반영되지 않았다.
+    """
+    service = _service()
+    r = _run(["sudo", "-n", "systemctl", "start", service], timeout=90)
+    return {"ok": r.returncode == 0,
+            "lines": [f"systemctl start {service} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]}
 
 
 def health() -> dict:
@@ -75,11 +88,23 @@ def health() -> dict:
 
 
 def restart() -> dict:
-    """정지 → 좀비정리 → 기동 → 헬스체크. 수동 버튼과 완료 훅이 공유하는 유일한 경로."""
-    detail = stop()
+    """정지 → 좀비정리 → 기동 → 헬스체크. 수동 버튼과 완료 훅이 공유하는 유일한 경로.
+
+    안전장치: stop() 이 실패하면(sudoers 화이트리스트 누락 등) kill_orphans() 를 호출하지 않고
+    즉시 실패를 반환한다. 서비스를 정상적으로 멈추지 못한 상태에서 좀비 프로세스만 강제 종료하면,
+    systemd 는 재기동을 시도하지 않으므로 FiftyOne 이 내려간 채로 남는 사고가 그대로 재현된다.
+    """
+    stop_result = stop()
+    detail = list(stop_result["lines"])
+    if not stop_result["ok"]:
+        detail.append("stop 실패 — 강제종료(kill_orphans) 생략")
+        return {"ok": False, "orphans_killed": 0, "detail": " / ".join(detail)}
+
     orphans = kill_orphans()
-    start()
+    start_result = start()
+    detail += start_result["lines"]
     h = health()
     detail.append(f"잔여 프로세스 정리 {orphans}건")
     detail.append(h["detail"])
-    return {"ok": h["ok"], "orphans_killed": orphans, "detail": " / ".join(detail)}
+    ok = start_result["ok"] and h["ok"]
+    return {"ok": ok, "orphans_killed": orphans, "detail": " / ".join(detail)}

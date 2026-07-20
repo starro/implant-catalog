@@ -23,9 +23,9 @@ def test_kill_orphans_uses_bracket_patterns_and_spares_mongod(monkeypatch):
 
 
 def test_restart_reports_failure_when_health_fails(monkeypatch):
-    monkeypatch.setattr(fiftyone_ctl, "stop", lambda: ["stopped"])
+    monkeypatch.setattr(fiftyone_ctl, "stop", lambda: {"ok": True, "lines": ["stopped"]})
     monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: 3)
-    monkeypatch.setattr(fiftyone_ctl, "start", lambda: None)
+    monkeypatch.setattr(fiftyone_ctl, "start", lambda: {"ok": True, "lines": ["started"]})
     monkeypatch.setattr(fiftyone_ctl, "health",
                         lambda: {"ok": False, "port": 5151, "detail": "연결 거부"})
     out = fiftyone_ctl.restart()
@@ -35,9 +35,9 @@ def test_restart_reports_failure_when_health_fails(monkeypatch):
 
 
 def test_restart_succeeds_when_health_ok(monkeypatch):
-    monkeypatch.setattr(fiftyone_ctl, "stop", lambda: ["stopped"])
+    monkeypatch.setattr(fiftyone_ctl, "stop", lambda: {"ok": True, "lines": ["stopped"]})
     monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: 0)
-    monkeypatch.setattr(fiftyone_ctl, "start", lambda: None)
+    monkeypatch.setattr(fiftyone_ctl, "start", lambda: {"ok": True, "lines": ["started"]})
     monkeypatch.setattr(fiftyone_ctl, "health",
                         lambda: {"ok": True, "port": 5151, "detail": "OK"})
     assert fiftyone_ctl.restart()["ok"] is True
@@ -47,11 +47,11 @@ def test_restart_calls_stop_kill_orphans_start_health_in_order(monkeypatch):
     """스텁을 각각 교체하는 것만으로는 순서가 뒤바뀌어도 통과한다 — 실제 호출 순서를 기록해 검증."""
     order = []
     monkeypatch.setattr(fiftyone_ctl, "stop",
-                        lambda: (order.append("stop"), ["stopped"])[1])
+                        lambda: (order.append("stop"), {"ok": True, "lines": ["stopped"]})[1])
     monkeypatch.setattr(fiftyone_ctl, "kill_orphans",
                         lambda: (order.append("kill_orphans"), 0)[1])
     monkeypatch.setattr(fiftyone_ctl, "start",
-                        lambda: order.append("start"))
+                        lambda: (order.append("start"), {"ok": True, "lines": ["started"]})[1])
     monkeypatch.setattr(fiftyone_ctl, "health",
                         lambda: (order.append("health"),
                                  {"ok": True, "port": 5151, "detail": "OK"})[1])
@@ -59,6 +59,32 @@ def test_restart_calls_stop_kill_orphans_start_health_in_order(monkeypatch):
     fiftyone_ctl.restart()
 
     assert order == ["stop", "kill_orphans", "start", "health"]
+
+
+def test_restart_skips_kill_orphans_and_start_when_stop_fails(monkeypatch):
+    """Critical 1 안전장치: stop() 이 실패(sudo 거부 등, returncode!=0)하면 kill_orphans() 를
+    호출하지 않고 즉시 ok=False 를 반환해야 한다. 서비스를 못 멈춘 채 좀비만 죽이면
+    systemd 가 재기동을 시도하지 않아 FiftyOne 이 내려간 채로 남는 사고가 재현된다."""
+    class R:
+        returncode = 1
+        stdout = ""
+        stderr = "sudo: a password is required"
+
+    monkeypatch.setattr(fiftyone_ctl.subprocess, "run", lambda cmd, **kw: R())
+
+    calls = []
+    monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: calls.append("kill_orphans") or 0)
+    monkeypatch.setattr(fiftyone_ctl, "start",
+                        lambda: calls.append("start") or {"ok": True, "lines": []})
+    monkeypatch.setattr(fiftyone_ctl, "health",
+                        lambda: calls.append("health") or {"ok": True, "port": 5151, "detail": "OK"})
+
+    out = fiftyone_ctl.restart()
+
+    assert out["ok"] is False
+    assert out["orphans_killed"] == 0
+    assert calls == []                    # kill_orphans/start/health 어느 것도 호출되면 안 된다
+    assert "rc=1" in out["detail"]
 
 
 def test_kill_orphans_returns_pid_count_from_pgrep_not_pattern_count(monkeypatch):
