@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # root 로 실행 — 방화벽 포트 개방 + Dagster/FiftyOne systemd 서비스 등록.
 #   (개발서버 58.229.105.3 / root 는 su - 로 전환. 서비스는 jay8126 권한으로 실행)
-# 사용: su - 후  bash /tmp/setup_systemd_root.sh
+# 사용: su - -c "bash /home/jay8126/Dr.HERi/data-pipeline/scripts/setup_systemd_root.sh"
 set -e
 
 U=jay8126
-H=/home/$U/drheri-pipeline
+# H 는 이 스크립트의 실제 위치에서 유도한다(스크립트가 scripts/ 밑에 있다고 가정).
+# 저장소를 다른 경로에 둔 경우 H=/other/path bash setup_systemd_root.sh 처럼 환경변수로 덮어쓸 수 있다.
+H="${H:-$(cd "$(dirname "$0")/.." && pwd)}"
 PY=$H/.venv/bin/python
 
 echo "=== 1) 방화벽 포트 개방 (3333 Dagster / 5151 FiftyOne) ==="

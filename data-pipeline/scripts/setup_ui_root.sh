@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # root 로 실행 — 관리 UI(:3000) systemd 등록 + FiftyOne 재기동 sudo 권한 부여.
-# 사용: su - 후  bash /tmp/setup_ui_root.sh
+# 사용: su - -c "bash /home/jay8126/Dr.HERi/data-pipeline/scripts/setup_ui_root.sh"
 set -e
 
 U=jay8126
-H=/home/$U/drheri-pipeline
+# H 는 이 스크립트의 실제 위치에서 유도한다(스크립트가 scripts/ 밑에 있다고 가정).
+# 저장소를 다른 경로에 둔 경우 H=/other/path bash setup_ui_root.sh 처럼 환경변수로 덮어쓸 수 있다.
+H="${H:-$(cd "$(dirname "$0")/.." && pwd)}"
 PY=$H/.venv/bin/python
 
 echo "=== 1) UI 가 FiftyOne 정지/기동/재기동할 수 있게 sudo 권한 허용 ==="

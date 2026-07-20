@@ -101,8 +101,10 @@ curl -s http://127.0.0.1:3000/api/sources | head -c 400
 3. FiftyOne 에서 태그를 찍고 `검수결과 반영` 을 누르면 학습/버림 숫자가 바뀌는가
 4. 재기동 후 `pgrep -af "[f]iftyone" | wc -l` 이 1인가
 
-> 참고: `scripts/setup_ui_root.sh` / `scripts/setup_systemd_root.sh` 의 실제 배포 경로 변수(`H`)는
-> `/home/jay8126/drheri-pipeline` 다(스크립트 상단의 `U`/`H` 변수 참고). 저장소를 다른 경로에
-> 클론했다면 두 스크립트의 `H` 값을 먼저 맞춰야 한다.
+> 참고: `scripts/setup_ui_root.sh` / `scripts/setup_systemd_root.sh` 의 배포 경로 변수(`H`)는
+> 스크립트 자신의 위치에서 자동으로 유도된다(`$(dirname "$0")/..`) — 위 예시처럼 저장소 안의
+> 실제 경로(`/home/jay8126/Dr.HERi/data-pipeline/scripts/...`)로 실행하면 별도 설정이 필요 없다.
+> 저장소를 다른 경로에 클론했거나 스크립트를 복사해서 실행하는 경우에는
+> `H=/other/path bash setup_ui_root.sh` 처럼 환경변수로 덮어쓸 수 있다.
 
 > 위 절차는 Windows 로컬 개발 환경에서는 실행하지 않았다(개발서버 접속 정보 없음) — 문서화만 해 둔다.
