@@ -84,3 +84,17 @@ def test_notify_calls_post_hook_when_from_ui(monkeypatch):
 
     assert calls == [{"ui_run_id": 11, "document_id": 3, "status": "SUCCESS",
                       "extracted": 0, "error": None}]
+
+
+def test_sensors_are_registered_as_running():
+    """센서가 STOPPED 로 등록되면 사람이 Dagster UI 에서 켜기 전까지 완료 푸시가 죽는다.
+
+    개발서버 배포에서 실제로 겪은 문제라, 기본 상태를 회귀 테스트로 고정한다.
+    """
+    from dagster import DefaultSensorStatus
+
+    from drheri_pipeline.definitions import defs
+
+    states = {s.name: s.default_status for s in defs.sensors}
+    assert states == {"on_run_success": DefaultSensorStatus.RUNNING,
+                      "on_run_failure": DefaultSensorStatus.RUNNING}

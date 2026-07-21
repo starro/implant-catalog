@@ -6,7 +6,12 @@ UI 를 거치지 않은 직접 실행(document_id=0)은 훅을 보내지 않는�
 import os
 
 import httpx
-from dagster import DagsterRunStatus, RunStatusSensorContext, run_status_sensor
+from dagster import (
+    DagsterRunStatus,
+    DefaultSensorStatus,
+    RunStatusSensorContext,
+    run_status_sensor,
+)
 
 UI_BASE = os.getenv("UI_BASE_URL", "http://127.0.0.1:3000")
 HOOK_TOKEN = os.getenv("HOOK_TOKEN", "drheri-dev")
@@ -45,12 +50,17 @@ def _notify(context: RunStatusSensorContext, status: str, error) -> None:
     context.log.info(f"UI 훅 전송 {'성공' if ok else '실패'} — {payload}")
 
 
-@run_status_sensor(run_status=DagsterRunStatus.SUCCESS)
+# default_status 를 주지 않으면 센서가 STOPPED 로 등록되어 사람이 Dagster UI 에서
+# 켜기 전까지 발화하지 않는다(개발서버 배포에서 실제로 겪음). 완료 푸시가 이 센서에
+# 의존하므로 배포 즉시 동작하도록 RUNNING 으로 등록한다.
+@run_status_sensor(run_status=DagsterRunStatus.SUCCESS,
+                   default_status=DefaultSensorStatus.RUNNING)
 def on_run_success(context: RunStatusSensorContext):
     _notify(context, "SUCCESS", None)
 
 
-@run_status_sensor(run_status=DagsterRunStatus.FAILURE)
+@run_status_sensor(run_status=DagsterRunStatus.FAILURE,
+                   default_status=DefaultSensorStatus.RUNNING)
 def on_run_failure(context: RunStatusSensorContext):
     err = None
     if context.failure_event and context.failure_event.message:
