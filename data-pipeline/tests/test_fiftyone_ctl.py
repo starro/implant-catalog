@@ -27,7 +27,7 @@ def test_restart_reports_failure_when_health_fails(monkeypatch):
     monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: 3)
     monkeypatch.setattr(fiftyone_ctl, "start", lambda: {"ok": True, "lines": ["started"]})
     monkeypatch.setattr(fiftyone_ctl, "health",
-                        lambda: {"ok": False, "port": 5151, "detail": "연결 거부"})
+                        lambda wait_s=0, interval_s=3.0: {"ok": False, "port": 5151, "detail": "연결 거부"})
     out = fiftyone_ctl.restart()
     assert out["ok"] is False
     assert out["orphans_killed"] == 3
@@ -39,7 +39,7 @@ def test_restart_succeeds_when_health_ok(monkeypatch):
     monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: 0)
     monkeypatch.setattr(fiftyone_ctl, "start", lambda: {"ok": True, "lines": ["started"]})
     monkeypatch.setattr(fiftyone_ctl, "health",
-                        lambda: {"ok": True, "port": 5151, "detail": "OK"})
+                        lambda wait_s=0, interval_s=3.0: {"ok": True, "port": 5151, "detail": "OK"})
     assert fiftyone_ctl.restart()["ok"] is True
 
 
@@ -53,8 +53,9 @@ def test_restart_calls_stop_kill_orphans_start_health_in_order(monkeypatch):
     monkeypatch.setattr(fiftyone_ctl, "start",
                         lambda: (order.append("start"), {"ok": True, "lines": ["started"]})[1])
     monkeypatch.setattr(fiftyone_ctl, "health",
-                        lambda: (order.append("health"),
-                                 {"ok": True, "port": 5151, "detail": "OK"})[1])
+                        lambda wait_s=0, interval_s=3.0: (order.append("health"),
+                                                          {"ok": True, "port": 5151,
+                                                           "detail": "OK"})[1])
 
     fiftyone_ctl.restart()
 
@@ -131,3 +132,46 @@ def test_stop_uses_current_env_service_name_not_import_time_value(monkeypatch):
     joined = " ".join(" ".join(c) for c in calls)
     assert "custom-fiftyone-svc" in joined
     assert "drheri-fiftyone" not in joined
+
+
+def test_health_retries_until_service_is_up(monkeypatch):
+    """FiftyOne 은 기동에 1분 안팎 걸린다. 즉시 한 번만 찔러보면 항상 실패로 보고된다."""
+    attempts = []
+
+    def fake_probe():
+        attempts.append(1)
+        ok = len(attempts) >= 3          # 세 번째 시도에 뜬다
+        return {"ok": ok, "port": 5151, "detail": "HTTP 200" if ok else "연결 실패: refused"}
+
+    monkeypatch.setattr(fiftyone_ctl, "_probe", fake_probe)
+    monkeypatch.setattr(fiftyone_ctl.time, "sleep", lambda s: None)
+
+    out = fiftyone_ctl.health(wait_s=60, interval_s=0.01)
+    assert out["ok"] is True
+    assert len(attempts) == 3
+
+
+def test_health_without_wait_probes_once(monkeypatch):
+    """현황 조회처럼 즉답이 필요한 곳은 기다리지 않는다."""
+    attempts = []
+    monkeypatch.setattr(fiftyone_ctl, "_probe",
+                        lambda: (attempts.append(1),
+                                 {"ok": False, "port": 5151, "detail": "연결 실패: refused"})[1])
+    monkeypatch.setattr(fiftyone_ctl.time, "sleep", lambda s: None)
+
+    assert fiftyone_ctl.health()["ok"] is False
+    assert len(attempts) == 1
+
+
+def test_restart_waits_for_startup_before_reporting_failure(monkeypatch):
+    """재기동 결과가 '기동 대기'를 거친 헬스체크를 반영해야 한다."""
+    waited = {}
+    monkeypatch.setattr(fiftyone_ctl, "stop", lambda: {"ok": True, "lines": ["stopped"]})
+    monkeypatch.setattr(fiftyone_ctl, "kill_orphans", lambda: 0)
+    monkeypatch.setattr(fiftyone_ctl, "start", lambda: {"ok": True, "lines": ["started"]})
+    monkeypatch.setattr(fiftyone_ctl, "health",
+                        lambda wait_s=0, interval_s=3.0: (waited.update(wait_s=wait_s),
+                                                          {"ok": True, "port": 5151,
+                                                           "detail": "HTTP 200"})[1])
+    assert fiftyone_ctl.restart()["ok"] is True
+    assert waited["wait_s"] > 0

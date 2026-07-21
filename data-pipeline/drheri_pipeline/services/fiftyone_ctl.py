@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 import urllib.error
 import urllib.request
 
 # 브래킷 표기: pkill -f "[f]iftyone.server" 는 자기 자신의 cmdline 과 매치되지 않는다.
 ORPHAN_PATTERNS = ["[f]iftyone.server", "[f]iftyone.core.service", "[s]erve_fiftyone_service"]
+
+# 재기동 후 헬스체크를 기다리는 최대 시간(초). 개발서버 실측 기동 시간이 ~60초라 여유를 둔다.
+STARTUP_WAIT_S = int(os.getenv("FIFTYONE_STARTUP_WAIT_S", "120"))
 
 
 def _service() -> str:
@@ -75,7 +79,8 @@ def start() -> dict:
             "lines": [f"systemctl start {service} → rc={r.returncode} {(r.stderr or '').strip()[:120]}"]}
 
 
-def health() -> dict:
+def _probe() -> dict:
+    """5151 에 한 번 요청해 본다."""
     port = _port()
     try:
         with urllib.request.urlopen(_health_url(), timeout=10) as resp:
@@ -85,6 +90,21 @@ def health() -> dict:
         return {"ok": False, "port": port, "detail": f"연결 실패: {e.reason}"}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "port": port, "detail": f"{e.__class__.__name__}: {e}"}
+
+
+def health(wait_s: int = 0, interval_s: float = 3.0) -> dict:
+    """헬스체크. wait_s 를 주면 그 시간까지 재시도한다.
+
+    FiftyOne 은 데이터셋을 읽느라 기동에 1분 안팎이 걸린다(개발서버 실측 ~60초).
+    재기동 직후 한 번만 찔러보면 항상 실패로 보고되므로 대기가 필요하다.
+    현황 조회처럼 즉답이 필요한 곳은 기본값(wait_s=0)으로 쓴다.
+    """
+    deadline = time.monotonic() + max(0, wait_s)
+    while True:
+        result = _probe()
+        if result["ok"] or time.monotonic() >= deadline:
+            return result
+        time.sleep(interval_s)
 
 
 def restart() -> dict:
@@ -103,7 +123,8 @@ def restart() -> dict:
     orphans = kill_orphans()
     start_result = start()
     detail += start_result["lines"]
-    h = health()
+    # 기동 직후 한 번만 찔러보면 항상 실패로 나온다(개발서버 실측 기동 시간 ~60초).
+    h = health(wait_s=STARTUP_WAIT_S)
     detail.append(f"잔여 프로세스 정리 {orphans}건")
     detail.append(h["detail"])
     ok = start_result["ok"] and h["ok"]
