@@ -97,4 +97,5 @@ def test_sensors_are_registered_as_running():
 
     states = {s.name: s.default_status for s in defs.sensors}
     assert states == {"on_run_success": DefaultSensorStatus.RUNNING,
-                      "on_run_failure": DefaultSensorStatus.RUNNING}
+                      "on_run_failure": DefaultSensorStatus.RUNNING,
+                      "on_run_canceled": DefaultSensorStatus.RUNNING}

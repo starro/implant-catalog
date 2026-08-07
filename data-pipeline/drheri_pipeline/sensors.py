@@ -66,3 +66,11 @@ def on_run_failure(context: RunStatusSensorContext):
     if context.failure_event and context.failure_event.message:
         err = context.failure_event.message[:500]
     _notify(context, "FAILURE", err)
+
+
+# Dagster UI 에서 사용자가 수집을 취소하면 CANCELED 가 된다. 이걸 잡아야 관리 UI 의
+# run 이 "대기중"에 멈춰 있지 않고 취소로 자동 반영된다(과거엔 30분 타임아웃까지 방치됐음).
+@run_status_sensor(run_status=DagsterRunStatus.CANCELED,
+                   default_status=DefaultSensorStatus.RUNNING)
+def on_run_canceled(context: RunStatusSensorContext):
+    _notify(context, "CANCELED", "사용자가 Dagster 에서 취소함")

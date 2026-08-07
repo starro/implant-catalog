@@ -49,9 +49,12 @@
   });
 
   async function collect() {
+    // 수집할 페이지를 그 자리에서 지정 (기본값은 문서에 저장된 값). 취소하면 중단.
+    const pages = prompt('수집할 페이지 (예: 12-26, 30 · 비우면 전체)', doc.default_pages || '');
+    if (pages === null) return;
     busy = true;
     try {
-      await post(`/api/sources/${id}/collect`, {});
+      await post(`/api/sources/${id}/collect`, { pages });
       toast('수집을 시작했습니다. 완료되면 자동으로 갱신됩니다.', 'info');
       await load();
     } catch (e) {
@@ -146,8 +149,10 @@
   <div class="actions">
     <button class="primary" onclick={collect} disabled={busy}>수집 실행</button>
     <button onclick={checkStatus} disabled={busy}>상태 확인</button>
-    <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri/samples?view=doc-{doc.id}"
-       target="_blank" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
+    {#if doc.funnel.extracted > 0}
+      <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri?view=doc-{doc.id}"
+         target="_blank" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
+    {/if}
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
     <button onclick={archive}>보관</button>
