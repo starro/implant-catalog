@@ -40,6 +40,8 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
         boxes = detect_fixtures(page.image)
         if not boxes:
             return []
+        # 박스를 읽기순서(위→아래, 좌→우)로 정렬 후 번호 매김 — 표 읽는 순서와 맞아 VLM 정렬이 쉬워진다
+        boxes = sorted(boxes, key=lambda b: (b.xyxy[1], b.xyxy[0]))
         marked = mark_page(page.image, boxes)
         specs = map_specs(marked, page.image, boxes, brand, page.text)
         recs: list[dict] = []
