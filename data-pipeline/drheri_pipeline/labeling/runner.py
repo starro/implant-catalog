@@ -30,7 +30,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _process_page(page, brand, conf_min, log) -> list[dict]:
+def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
     """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트).
 
     단일 해상도: 검출·마크·VLM·크롭 모두 page.image 를 쓴다(좌표 환산 없음).
@@ -72,6 +72,8 @@ def _process_page(page, brand, conf_min, log) -> list[dict]:
                 "source_page": page.page_no, "page_no": page.page_no,
                 "bbox": list(b.xyxy), "needs_review": needs,
                 "brand_norm": normalize_brand(brand), "fetched_at": _now(),
+                "source_pdf": pdf_url,
+                "origin_url": f"{pdf_url}#page={page.page_no}",
             })
         return recs
     except Exception as e:  # noqa: BLE001 — 페이지 단위 예외 격리(§8)
@@ -85,7 +87,7 @@ def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
     all_recs: list[dict] = []
     fixture_pages = 0
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for recs in ex.map(lambda p: _process_page(p, brand, conf_min, log), pages_list):
+        for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, log), pages_list):
             if recs:
                 fixture_pages += 1
                 all_recs.extend(recs)

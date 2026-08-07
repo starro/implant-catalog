@@ -26,7 +26,12 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
             if want else range(doc.page_count))
     for i in idxs:
         page = doc[i]
-        pix = page.get_pixmap(dpi=dpi)
-        image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
-        yield RenderedPage(page_no=i + 1, image=image, text=page.get_text())
+        try:
+            pix = page.get_pixmap(dpi=dpi)
+            image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+            text = page.get_text()
+        except Exception as e:  # noqa: BLE001 — 페이지 렌더 실패는 스킵+로그(§8)
+            log(f"[render] page {i + 1} 렌더 실패 — 건너뜀 ({e})")
+            continue
+        yield RenderedPage(page_no=i + 1, image=image, text=text)
     doc.close()

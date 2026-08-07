@@ -34,6 +34,8 @@ def test_label_catalog_end_to_end(tmp_path, monkeypatch):
     assert written["recs"][0]["brand"] == "BEGO" and written["recs"][0]["model"] == "SC"
     # 크롭 파일·manifest 기록됨
     assert (tmp_path / "manifest.jsonl").exists()
+    assert written["recs"][0]["source_pdf"] == str(pdf)
+    assert written["recs"][0]["origin_url"].endswith("#page=1")
 
 
 def test_needs_review_when_confidence_low(tmp_path, monkeypatch):
