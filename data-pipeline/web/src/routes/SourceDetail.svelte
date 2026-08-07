@@ -4,7 +4,7 @@
   import RunTable from '../components/RunTable.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { dateTime } from '../lib/format.js';
-  import { loadSources, toast } from '../lib/stores.svelte.js';
+  import { liveEvents, loadSources, toast } from '../lib/stores.svelte.js';
   import { navigate } from '../lib/router.svelte.js';
 
   let { id } = $props();
@@ -14,6 +14,11 @@
   let editing = $state(false);
   let edit = $state({ name: '', brand: '', memo: '', conf: 0.35, dpi: 200, pages: '' });
   let settings = $state({ DAGSTER_URL: '', FIFTYONE_URL: '' });
+
+  // 최신 수집이 진행 중인가 — 진행 중엔 빈 퍼널 대신 인디케이터를 보여준다.
+  let running = $derived(
+    !!doc?.runs?.[0] && ['QUEUED', 'RUNNING'].includes(doc.runs[0].status),
+  );
 
   async function load() {
     try {
@@ -31,6 +36,16 @@
     id;                                   // id 가 바뀌면 다시 불러온다
     load();
     get('/api/settings').then((s) => (settings = s)).catch(() => {});
+  });
+
+  // 완료/동기화 SSE 가 오면 이 문서 상세를 자동 갱신한다(폴링 아님).
+  $effect(() => {
+    liveEvents.version;                   // 의존성 등록
+    const ev = liveEvents.last;
+    if (!ev) return;
+    const mine = ev.type === 'sync.finished'
+      || (ev.type === 'run.finished' && ev.payload?.document_id === id);
+    if (mine) load();
   });
 
   async function collect() {
@@ -100,7 +115,14 @@
     {#if doc.status === 'archived'}<b class="archived">보관됨</b>{/if}
   </div>
 
-  <div class="funnel"><FunnelBar funnel={doc.funnel} height={14} /></div>
+  <div class="funnel">
+    {#if running}
+      <div class="progress"><span></span></div>
+      <div class="label">수집 중… 완료되면 자동으로 채워집니다</div>
+    {:else}
+      <FunnelBar funnel={doc.funnel} height={14} />
+    {/if}
+  </div>
 
   <div class="actions">
     <button class="primary" onclick={collect} disabled={busy}>수집 실행</button>
@@ -140,6 +162,14 @@
   h3 { font-size: 13px; margin: 20px 0 6px; }
   .url { word-break: break-all; }
   .funnel { margin: 14px 0; max-width: 620px; }
+  /* 진행 중 인디케이터 — 좌우로 흐르는 막대(결정 불가 상태). 빈 퍼널과 헷갈리지 않게. */
+  .progress { height: 14px; border-radius: 4px; background: var(--pending); overflow: hidden; }
+  .progress span { display: block; width: 35%; height: 100%; border-radius: 4px;
+                   background: var(--accent); animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide {
+    0%   { margin-left: -35%; }
+    100% { margin-left: 100%; }
+  }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
   .btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px;
          color: var(--text); text-decoration: none; }
