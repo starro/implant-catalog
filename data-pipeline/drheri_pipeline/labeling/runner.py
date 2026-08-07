@@ -1,0 +1,99 @@
+"""PDF 1건 라벨링 오케스트레이션 — 렌더·필터·병렬·크롭·manifest·FiftyOne."""
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from io import BytesIO
+
+from .. import storage
+from ..taxonomy import normalize_brand
+from .render import render_pdf
+from .detect import detect_fixtures
+from .mark import mark_page
+from .mapper import map_specs
+from .partnum import parse_length
+from .fiftyone_writer import register_prelabeled
+
+
+@dataclass
+class RunSummary:
+    pdf: str
+    brand: str
+    pages: int
+    fixture_pages: int
+    crops: int
+    needs_review: int
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _process_page(page, brand, conf_min, log) -> list[dict]:
+    """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트).
+
+    단일 해상도: 검출·마크·VLM·크롭 모두 page.image 를 쓴다(좌표 환산 없음).
+    페이지 단위 예외는 격리해 한 페이지 실패가 전체를 멈추지 않게 한다(스펙 §8).
+    """
+    try:
+        boxes = detect_fixtures(page.image)
+        if not boxes:
+            return []
+        marked = mark_page(page.image, boxes)
+        specs = map_specs(marked, page.image, boxes, brand, page.text)
+        recs: list[dict] = []
+        seen: set[str] = set()
+        for i, b in enumerate(boxes):
+            crop = page.image.crop(b.xyxy)
+            buf = BytesIO(); crop.save(buf, "PNG"); png = buf.getvalue()
+            chash = storage.content_hash(png)
+            if chash in seen:
+                continue
+            seen.add(chash)
+            sp = specs[i] if i < len(specs) else None
+            model = sp.model if sp else None
+            diameter = sp.diameter if sp else None
+            length = (sp.length if sp and sp.length else
+                      parse_length(brand, sp.part_number if sp else None))
+            conf = sp.confidence if sp else 0.0
+            needs = conf < conf_min or not model or not diameter
+            dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
+                                           "catalog", chash, "png")
+            if not dst.exists():
+                dst.write_bytes(png)
+            recs.append({
+                "content_hash": chash, "path": storage.rel(dst),
+                "stage": "review", "status": "review",
+                "brand": brand, "model": model, "diameter": diameter, "length": length,
+                "part_number": sp.part_number if sp else None,
+                "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
+                "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
+                "source_page": page.page_no, "page_no": page.page_no,
+                "bbox": list(b.xyxy), "needs_review": needs,
+                "brand_norm": normalize_brand(brand), "fetched_at": _now(),
+            })
+        return recs
+    except Exception as e:  # noqa: BLE001 — 페이지 단위 예외 격리(§8)
+        log(f"[runner] page {page.page_no} 실패 — 건너뜀 ({e})")
+        return []
+
+
+def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
+                  conf_min: float = 0.6, max_workers: int = 4, log=print) -> RunSummary:
+    pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log))
+    all_recs: list[dict] = []
+    fixture_pages = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for recs in ex.map(lambda p: _process_page(p, brand, conf_min, log), pages_list):
+            if recs:
+                fixture_pages += 1
+                all_recs.extend(recs)
+    storage.append_manifest(all_recs)
+    register_prelabeled(all_recs, log=log)
+    summ = RunSummary(pdf=pdf_url, brand=brand, pages=len(pages_list),
+                      fixture_pages=fixture_pages, crops=len(all_recs),
+                      needs_review=sum(1 for r in all_recs if r["needs_review"]))
+    log(f"[runner] {brand} pages={summ.pages} fixture_pages={summ.fixture_pages} "
+        f"crops={summ.crops} needs_review={summ.needs_review}")
+    return summ
