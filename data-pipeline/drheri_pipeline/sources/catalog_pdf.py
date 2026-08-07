@@ -13,13 +13,10 @@ import re
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
-
-import httpx
 
 from .. import storage
+from .pdf_util import fetch_pdf_bytes as _fetch_pdf_bytes, parse_pages as _parse_pages
 
-_UA = {"User-Agent": "Mozilla/5.0"}
 _MODEL = None  # 프로세스당 1회 로드
 
 # Osstem 시리즈 패턴 — 페이지 전체 텍스트에서 단일 시리즈면 그 페이지 figure 에 자동 부여.
@@ -50,25 +47,6 @@ def _get_model():
     return _MODEL
 
 
-def _fetch_pdf_bytes(url: str, log) -> tuple[bytes, str]:
-    """http(s) URL · file:// · 로컬 경로 모두 지원 → (bytes, 파일명)."""
-    local = Path(url)
-    if local.exists():                       # 로컬 경로 직접 (local_upload)
-        log(f"[catalog_pdf] local file {url}")
-        return local.read_bytes(), local.name
-    parsed = urlparse(url)
-    if parsed.scheme in ("http", "https"):
-        log(f"[catalog_pdf] download {url}")
-        resp = httpx.get(url, headers=_UA, timeout=120, follow_redirects=True)
-        resp.raise_for_status()
-        return resp.content, (Path(parsed.path).name or "catalog.pdf")
-    if parsed.scheme == "file":
-        from urllib.request import url2pathname
-        fp = Path(url2pathname(parsed.path))
-        return fp.read_bytes(), fp.name
-    raise ValueError(f"지원하지 않는 PDF 경로: {url}")
-
-
 def _download_pdf(url: str, brand: str, log) -> Path:
     data, name = _fetch_pdf_bytes(url, log)
     if not name.lower().endswith(".pdf"):
@@ -77,38 +55,6 @@ def _download_pdf(url: str, brand: str, log) -> Path:
     dst.write_bytes(data)
     log(f"[catalog_pdf] raw 저장 → {storage.rel(dst)}")
     return dst
-
-
-def _parse_pages(pages: str) -> list[int] | None:
-    """페이지 지정 파싱. '' → None(전체), '12' → [12], '12-16' → [12..16],
-    '40-42, 12-14, 13' → 정렬·중복제거된 [12,13,14,40,41,42].
-
-    잘못된 입력(숫자 아님/하한>상한/0 이하/형식 불량)은 ValueError 로 막아
-    수집이 조용히 깨지지 않게 한다.
-    """
-    pages = (pages or "").strip()
-    if not pages:
-        return None
-    result: set[int] = set()
-    for token in pages.replace(" ", "").split(","):
-        if not token:
-            continue
-        if "-" in token:
-            parts = token.split("-")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                raise ValueError(f"잘못된 페이지 범위: '{token}' (예: 12-26)")
-            lo, hi = int(parts[0]), int(parts[1])   # int() 가 비숫자면 ValueError
-            if lo < 1 or hi < 1:
-                raise ValueError(f"페이지는 1 이상이어야 합니다: '{token}'")
-            if lo > hi:
-                raise ValueError(f"범위 시작이 끝보다 큽니다: '{token}' (예: 12-26)")
-            result.update(range(lo, hi + 1))
-        else:
-            n = int(token)                          # 비숫자면 ValueError
-            if n < 1:
-                raise ValueError(f"페이지는 1 이상이어야 합니다: '{token}'")
-            result.add(n)
-    return sorted(result)
 
 
 def ingest(config, log=print) -> list[dict]:
