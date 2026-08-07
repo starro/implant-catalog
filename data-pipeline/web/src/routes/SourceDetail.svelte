@@ -127,7 +127,7 @@
   <div class="actions">
     <button class="primary" onclick={collect} disabled={busy}>수집 실행</button>
     <button onclick={checkStatus} disabled={busy}>상태 확인</button>
-    <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri?view=doc-{doc.id}"
+    <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri/samples?view=doc-{doc.id}"
        target="_blank" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={archive}>보관</button>
