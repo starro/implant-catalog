@@ -105,6 +105,29 @@ def push_stage_to_fiftyone(moves: dict[str, tuple[str, str]]) -> int:
     return failed
 
 
+def delete_fiftyone_samples(hashes: list[str]) -> int:
+    """버림 처리된 content_hash 샘플을 FiftyOne 데이터셋에서 제거.
+
+    화면(라벨링 뷰)에서 버림 이미지가 실제로 사라지게 한다. 파일은 data/rejected/ 에,
+    DB 행은 stage='rejected' 로 남아 있어 감사·복구는 가능하다(FiftyOne 재태깅으로는 복구 불가).
+    실제 삭제한 수를 반환. 미설치/데이터셋 없음/오류 시 0.
+    """
+    if not hashes:
+        return 0
+    try:
+        import fiftyone as fo
+        from fiftyone import ViewField as F
+    except Exception:  # noqa: BLE001
+        return 0
+    if DATASET not in fo.list_datasets():
+        return 0
+    ds = fo.load_dataset(DATASET)
+    view = ds.match(F("content_hash").is_in(hashes))
+    n = len(view)
+    ds.delete_samples(view)
+    return n
+
+
 def is_promotable(img: dict) -> bool:
     """kept + brand/series/model 3종 완비면 training 승급 대상."""
     if img.get("review_state") != "kept":
@@ -247,8 +270,16 @@ def run_sync() -> dict:
     move_failed = _reconcile_files(prev_rel_path)
 
     # ---- 3단계: FiftyOne 반영 (커밋 후, 멱등·재시도 가능) ----
+    # 버림된 것은 갱신이 아니라 FiftyOne 에서 제거해 라벨링 뷰에서 사라지게 한다.
+    with conn.session() as cx:
+        reject_set = {r["content_hash"] for r in cx.execute(
+            "SELECT content_hash FROM image WHERE stage='rejected'").fetchall()}
+
     moves = _compute_fiftyone_moves(samples)
+    moves = {h: v for h, v in moves.items() if h not in reject_set}   # 버림은 갱신 대상 제외
     fiftyone_failed = push_stage_to_fiftyone(moves) or 0
+    # 아직 FiftyOne 에 남아 있는 버림 샘플만 삭제 (samples = 이번 읽기 시점에 존재하던 것)
+    fiftyone_deleted = delete_fiftyone_samples([h for h in reject_set if h in samples])
 
     if move_failed or fiftyone_failed:
         note = f"{note}, 파일이동 실패 {move_failed}건, FiftyOne반영 실패 {fiftyone_failed}건"
@@ -261,4 +292,4 @@ def run_sync() -> dict:
 
     return {"kept": kept, "rejected": rejected, "promoted": promoted, "note": note,
             "move_failed": move_failed, "fiftyone_failed": fiftyone_failed,
-            "saved_views": saved_views}
+            "fiftyone_deleted": fiftyone_deleted, "saved_views": saved_views}

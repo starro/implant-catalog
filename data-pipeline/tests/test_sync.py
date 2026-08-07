@@ -83,6 +83,31 @@ def test_rejected_file_is_moved_not_deleted(data_root, monkeypatch):
     assert not (storage.DATA_ROOT / "review" / "r1.png").exists()
 
 
+def test_rejected_sample_is_deleted_from_fiftyone(data_root, monkeypatch):
+    """버림 처리된 것은 FiftyOne 에서 실제로 제거돼야 라벨링 뷰에서 사라진다.
+    다만 DB 행·rejected/ 파일은 남아 복구 가능(파일 이동은 유지)."""
+    _seed_images(data_root)
+    monkeypatch.setattr(sync, "read_review_state", lambda: [
+        {"content_hash": "k1", "tags": ["keep"], "brand": "Osstem",
+         "series": "TSIII", "surface": "SA", "model": "TSIII4010S"},
+        {"content_hash": "r1", "tags": ["reject"], "brand": "Osstem",
+         "series": "_unknown", "surface": None, "model": "_unknown"}])
+    monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
+    deleted = {}
+    monkeypatch.setattr(sync, "delete_fiftyone_samples",
+                        lambda hashes: (deleted.setdefault("hashes", list(hashes)), len(hashes))[1])
+
+    out = sync.run_sync()
+    # 버림된 r1 만 FiftyOne 삭제 대상 (keep 한 k1 은 아님)
+    assert deleted["hashes"] == ["r1"]
+    assert out["fiftyone_deleted"] == 1
+    # 파일·DB 는 그대로 (복구 가능)
+    with conn.session() as cx:
+        row = cx.execute("SELECT * FROM image WHERE content_hash='r1'").fetchone()
+    assert row["stage"] == "rejected"
+    assert (storage.DATA_ROOT / row["rel_path"]).exists()
+
+
 def test_sync_log_is_recorded(data_root, monkeypatch):
     _seed_images(data_root)
     monkeypatch.setattr(sync, "read_review_state", lambda: [])
