@@ -236,6 +236,22 @@ def test_render_pdf_dpi_scales_image(tmp_path):
     assert big.image.width > small.image.width     # dpi 노브가 해상도를 키운다
 
 
+def test_render_pdf_skips_failed_page(tmp_path, monkeypatch):
+    # 한 페이지 렌더가 터져도 나머지는 나오고 전체는 안 멈춘다(§8)
+    pdf = tmp_path / "c.pdf"; _make_pdf(pdf, pages=2)
+    from PIL import Image as PILImage
+    real_open = PILImage.open
+    calls = {"n": 0}
+    def flaky_open(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return real_open(*a, **k)
+    monkeypatch.setattr("PIL.Image.open", flaky_open)
+    out = list(render.render_pdf(str(pdf), dpi=100))
+    assert [p.page_no for p in out] == [2]
+
+
 def test_render_pdf_page_filter(tmp_path):
     pdf = tmp_path / "c.pdf"; _make_pdf(pdf, pages=3)
     out = list(render.render_pdf(str(pdf), pages="2"))
@@ -278,11 +294,17 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
             if want else range(doc.page_count))
     for i in idxs:
         page = doc[i]
-        pix = page.get_pixmap(dpi=dpi)
-        image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
-        yield RenderedPage(page_no=i + 1, image=image, text=page.get_text())
+        try:
+            pix = page.get_pixmap(dpi=dpi)
+            image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+            text = page.get_text()
+        except Exception as e:  # noqa: BLE001 — 페이지 렌더 실패는 스킵+로그(§8), 전체 중단 안 함
+            log(f"[render] page {i + 1} 렌더 실패 — 건너뜀 ({e})")
+            continue
+        yield RenderedPage(page_no=i + 1, image=image, text=text)
     doc.close()
 ```
+(§8: 렌더는 `label_catalog` 에서 eager 하게 소비되므로, 페이지단위 예외 격리는 **여기 렌더 루프**에 있어야 한다 — `_process_page` 로는 못 잡는다.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -938,6 +960,9 @@ def test_label_catalog_end_to_end(tmp_path, monkeypatch):
     summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
     assert summ.fixture_pages == 1 and summ.crops == 1
     assert written["recs"][0]["brand"] == "BEGO" and written["recs"][0]["model"] == "SC"
+    # 역추적 필드(§6)
+    assert written["recs"][0]["source_pdf"] == str(pdf)
+    assert written["recs"][0]["origin_url"].endswith("#page=1")
     # 크롭 파일·manifest 기록됨
     assert (tmp_path / "manifest.jsonl").exists()
 
@@ -994,7 +1019,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _process_page(page, brand, conf_min, log) -> list[dict]:
+def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
     """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트).
 
     단일 해상도: 검출·마크·VLM·크롭 모두 page.image 를 쓴다(좌표 환산 없음).
@@ -1033,6 +1058,7 @@ def _process_page(page, brand, conf_min, log) -> list[dict]:
                 "part_number": sp.part_number if sp else None,
                 "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
                 "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
+                "source_pdf": pdf_url, "origin_url": f"{pdf_url}#page={page.page_no}",
                 "source_page": page.page_no, "page_no": page.page_no,
                 "bbox": list(b.xyxy), "needs_review": needs,
                 "brand_norm": normalize_brand(brand), "fetched_at": _now(),
@@ -1049,7 +1075,7 @@ def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
     all_recs: list[dict] = []
     fixture_pages = 0
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for recs in ex.map(lambda p: _process_page(p, brand, conf_min, log), pages_list):
+        for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, log), pages_list):
             if recs:
                 fixture_pages += 1
                 all_recs.extend(recs)
@@ -1254,7 +1280,7 @@ git commit -m "docs: DGX 라벨링 엔진 배치 절차 + BEGO 스모크"
 - §5 구성단위 8개 → Task 1(source_resolver=pdf_util)·2(renderer)·4(detector)·6(mapper)·3(partnum)·7(writer)·8(runner+ledger=manifest)·9(cli). 전부 매핑됨.
 - §6 라벨 스키마·granularity → Task 7 필드 + Task 8 length 규칙(sp.length 우선, 없으면 part_number, 못 찾으면 None — "여러 길이 복제 금지" 준수).
 - §7 성능(페이지필터·병렬·웜·이원해상도) → Task 8(_process_page 검출0 스킵·ThreadPoolExecutor)·Task 2(이원렌더)·Task 4/10(웜 서비스).
-- §8 에러(렌더실패 스킵·검출0 스킵·VLM실패 needs_review·멱등) → Task 6(try/except)·Task 8(멱등·needs_review)·Task 2. **갭 보완**: 렌더 개별 페이지 예외 격리는 runner `_process_page` 를 try 로 감싸는 것으로 충분 — Task 8 구현 시 `ex.map` 결과가 예외면 그 페이지만 건너뛰도록 `_process_page` 최상단을 `try/except` 로 감싼다(가이드: 실패 페이지는 빈 리스트 반환·로그).
+- §8 에러(렌더실패 스킵·검출0 스킵·VLM실패 needs_review·멱등) → Task 6(try/except)·Task 8(멱등·needs_review·`_process_page` 페이지단위 격리)·**Task 2 render 루프 페이지단위 try/except**(렌더실패 스킵+로그). ⚠️ 렌더는 `label_catalog` 에서 eager 소비되므로 렌더 예외 격리는 `_process_page` 가 아니라 **render 루프 안**에 있어야 한다(2026-08-08 Task8 리뷰에서 교정). 역추적: 레코드에 `source_pdf`/`origin_url`(§6).
 - §9 테스트/호출규약 → 각 Task TDD + Task 4 gdino_server·Task 6 mapper 가 검증된 규약 사용. 통합 스모크 → Task 10 Step 4.
 - §10 인프라(vLLM 재사용·GDINO 서비스·Mongo/FiftyOne·NAS ro) → Task 4·10.
 
