@@ -47,3 +47,11 @@ def test_render_pdf_skips_failed_page(tmp_path, monkeypatch):
     monkeypatch.setattr("PIL.Image.open", flaky_open)
     out = list(render.render_pdf(str(pdf), dpi=100))
     assert [p.page_no for p in out] == [2]      # 실패 페이지만 스킵, 나머지 반환
+
+
+def test_render_pdf_accepts_url_via_fetch(tmp_path, monkeypatch):
+    pdf = tmp_path / "c.pdf"; _make_pdf(pdf, pages=1)
+    data = pdf.read_bytes()
+    monkeypatch.setattr(render, "fetch_pdf_bytes", lambda url, log=print: (data, "c.pdf"))
+    out = list(render.render_pdf("https://vendor.com/catalog.pdf", dpi=100))
+    assert len(out) == 1 and out[0].page_no == 1

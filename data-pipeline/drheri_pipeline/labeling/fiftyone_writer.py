@@ -35,6 +35,7 @@ def register_prelabeled(records: list[dict], log=print) -> int:
     for r in records:
         if r["content_hash"] in existing:
             continue
+        existing.add(r["content_hash"])
         s = fo.Sample(filepath=str((storage.DATA_ROOT / r["path"]).resolve()))
         for f in ["content_hash", "brand", "model", "diameter", "length",
                   "part_number", "evidence"]:

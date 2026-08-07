@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Iterator
 
-from ..sources.pdf_util import parse_pages
+from ..sources.pdf_util import fetch_pdf_bytes, parse_pages
 
 
 @dataclass
@@ -20,18 +20,21 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
     import fitz
     from PIL import Image
 
-    doc = fitz.open(str(pdf_path))
-    want = parse_pages(pages)
-    idxs = ([n - 1 for n in want if 1 <= n <= doc.page_count]
-            if want else range(doc.page_count))
-    for i in idxs:
-        page = doc[i]
-        try:
-            pix = page.get_pixmap(dpi=dpi)
-            image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
-            text = page.get_text()
-        except Exception as e:  # noqa: BLE001 — 페이지 렌더 실패는 스킵+로그(§8)
-            log(f"[render] page {i + 1} 렌더 실패 — 건너뜀 ({e})")
-            continue
-        yield RenderedPage(page_no=i + 1, image=image, text=text)
-    doc.close()
+    data, _ = fetch_pdf_bytes(str(pdf_path), log)
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        want = parse_pages(pages)
+        idxs = ([n - 1 for n in want if 1 <= n <= doc.page_count]
+                if want else range(doc.page_count))
+        for i in idxs:
+            page = doc[i]
+            try:
+                pix = page.get_pixmap(dpi=dpi)
+                image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+                text = page.get_text()
+            except Exception as e:  # noqa: BLE001 — 페이지 렌더 실패는 스킵+로그(§8)
+                log(f"[render] page {i + 1} 렌더 실패 — 건너뜀 ({e})")
+                continue
+            yield RenderedPage(page_no=i + 1, image=image, text=text)
+    finally:
+        doc.close()
