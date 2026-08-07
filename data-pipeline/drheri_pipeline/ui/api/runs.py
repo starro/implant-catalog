@@ -154,17 +154,19 @@ async def hook_run_finished(request: Request):
 
     doc_id, extracted = await run_in_threadpool(_finish)
 
-    restart = None
+    # FiftyOne 은 재기동하지 않는다. 수집 잡의 register_fiftyone 이 이미 App 과 같은
+    # MongoDB(실측 확인)에 샘플을 써 두므로, 사용자가 FiftyOne 탭을 새로고침하면 바로 보인다.
+    # 과거의 매 수집 재기동은 불필요한 60초 다운타임 + 좀비 세션 위험이었다.
+    # (수동 재기동은 설정 화면 버튼으로 유사시에만 사용.)
     saved_views = None
     if status == "SUCCESS":
-        restart = await run_in_threadpool(fiftyone_ctl.restart)
         saved_views = await run_in_threadpool(_sync_saved_views_safely)
 
     broadcaster.publish("run.finished", {
         "ui_run_id": ui_run_id, "document_id": doc_id, "status": status,
-        "extracted": extracted, "error": error, "fiftyone": restart,
+        "extracted": extracted, "error": error, "fiftyone": None,
         "saved_views": saved_views})
-    return ok({"ui_run_id": ui_run_id, "fiftyone": restart, "saved_views": saved_views})
+    return ok({"ui_run_id": ui_run_id, "fiftyone": None, "saved_views": saved_views})
 
 
 async def events(request: Request):

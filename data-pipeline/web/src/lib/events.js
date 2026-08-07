@@ -7,7 +7,7 @@ export function connect() {
   es.addEventListener('run.finished', (e) => {
     const p = JSON.parse(e.data);
     if (p.status === 'SUCCESS') {
-      toast(`수집 완료 — ${p.extracted}장`, 'success');
+      toast(`수집 완료 — ${p.extracted}장 (FiftyOne 새로고침 시 반영)`, 'success');
     } else {
       toast(`수집 실패 — ${p.error || p.status}`, 'error');
     }

@@ -53,11 +53,12 @@ def test_collect_submit_failure_marks_run_failed(client, monkeypatch):
     assert "dagster 연결 실패" in detail["runs"][0]["error"]
 
 
-def test_hook_finishes_run_and_restarts_fiftyone(client, monkeypatch):
+def test_hook_finishes_run_without_restarting_fiftyone(client, monkeypatch):
+    # 수집 잡이 이미 App 과 같은 Mongo 에 샘플을 쓰므로 재기동하지 않는다.
+    # 사용자는 FiftyOne 새로고침으로 새 샘플을 본다. 훅이 restart 를 부르면 실패.
     called = {}
     monkeypatch.setattr(runs_api.fiftyone_ctl, "restart",
-                        lambda: called.setdefault("restart", True) or
-                        {"ok": True, "orphans_killed": 0, "detail": "OK"})
+                        lambda: called.setdefault("restart", True))
     doc = _doc(client)
     ui_run_id = client.post(f"/api/sources/{doc}/collect", json={}).json()["data"]["ui_run_id"]
 
@@ -66,7 +67,8 @@ def test_hook_finishes_run_and_restarts_fiftyone(client, monkeypatch):
                     json={"ui_run_id": ui_run_id, "dagster_run_id": "dagster-run-1",
                           "status": "SUCCESS", "extracted": 9, "error": None})
     assert r.json()["ok"] is True
-    assert called["restart"] is True
+    assert "restart" not in called                     # 재기동 안 함
+    assert r.json()["data"]["fiftyone"] is None
     detail = client.get(f"/api/sources/{doc}").json()["data"]
     assert detail["runs"][0]["status"] == "SUCCESS"
     assert detail["runs"][0]["extracted"] == 9
