@@ -20,7 +20,7 @@ app = FastAPI()
 @app.post("/detect")
 def detect(body: dict):
     img = Image.open(BytesIO(base64.b64decode(body["image_b64"]))).convert("RGB")
-    text = body.get("prompt", "a gray implant object.")  # 끝 마침표 필수(Grounding DINO 쿼리 관례)
+    text = body.get("prompt", "an implant fixture.")  # 끝 마침표 필수(Grounding DINO 쿼리 관례)
     thr = float(body.get("threshold", 0.3))
     inp = _proc(images=img, text=text, return_tensors="pt").to(DEVICE)
     with torch.no_grad():
