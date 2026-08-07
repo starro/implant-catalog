@@ -50,15 +50,15 @@ Qwen3-VL-8B-Instruct 정확 추출(웜 10.6s/page).
 
 ```
 카탈로그 PDF  (URL 다운로드  또는  //172.30.1.8/nas-metass 파일)
-  → 페이지 렌더 (PDF→PNG, 적정 DPI §7)
-  → [페이지 필터] Grounding DINO 박스 0개면 스킵  ← 느린 VLM 낭비 차단
+  → 페이지 렌더 (PDF→PNG): 고해상도 마스터 1회 + 읽기용 다운스케일 뷰 (§7)
+  → [페이지 필터] Grounding DINO(다운스케일 뷰) 박스 0개면 스킵  ← 느린 VLM 낭비 차단
   → 픽스처 있는 페이지마다 (여러 페이지 병렬):
-       Grounding DINO → 픽스처 박스 N개
-       페이지 이미지에 박스를 번호로 오버레이 (set-of-mark)
+       Grounding DINO(다운스케일 뷰) → 픽스처 박스 N개  → 좌표를 마스터 스케일로 환산
+       다운스케일 뷰에 박스를 번호로 오버레이 (set-of-mark)
        Qwen3-VL(vLLM :8000) 1콜 → 박스별 {model, diameter, length?, part_number?, confidence, evidence}
          └ 항목수≠박스수 또는 저confidence → 그 페이지만 박스별 개별콜 재시도
        length = part_number 파싱 우선, 없으면 VLM 이 읽은 값
-       박스 크롭 → DGX 로컬 저장
+       박스 크롭을 **고해상도 마스터에서** 떠서 DGX 로컬 저장  ← 학습 데이터 품질
        FiftyOne 샘플 생성 (미리라벨 + confidence + 출처, 낮으면 needs_review 태그)
   → 실행 원장(JSON/작은 SQLite): pdf·페이지·건수, content_hash 중복제거
 사람 → DGX FiftyOne: 라벨 확인·수정, keep/reject
@@ -70,8 +70,8 @@ Qwen3-VL-8B-Instruct 정확 추출(웜 10.6s/page).
 | 단위 | 역할 | 입력 → 출력 |
 |---|---|---|
 | `source_resolver` | URL/파일 → 로컬 PDF 경로 | `str(url\|path)` → `Path` |
-| `page_renderer` | PDF → 페이지 PNG | `(pdf_path, dpi)` → `list[PageImage]` |
-| `detector` | Grounding DINO 래퍼(모델 1회 로드 재사용) | `PageImage` → `list[Box]` (score, xyxy) |
+| `page_renderer` | PDF → 고해상도 마스터 + 다운스케일 뷰(스케일 계수 보존) | `(pdf_path, master_dpi, view_px)` → `list[PageImage{master, view, scale}]` |
+| `detector` | Grounding DINO 래퍼(모델 1회 로드 재사용, 다운스케일 뷰 입력) | `PageImage.view` → `list[Box]` (score, xyxy@master) |
 | `mapper` | Qwen3-VL vLLM 클라이언트(set-of-mark 프롬프트 + 파싱) | `(PageImage, list[Box])` → `list[BoxSpec]` |
 | `partnum_parser` | part_number → length·검증 (순수함수, 브랜드별 확장) | `(brand, part_number)` → `length?` |
 | `fiftyone_writer` | 크롭 + 라벨 → FiftyOne 샘플(스키마 §6, review 플래그) | `list[LabeledCrop]` → 샘플 |
@@ -112,11 +112,16 @@ brand+model+diameter 까지만 담는다(길이는 catalog 스케일에서 동�
    벽시계상 대폭 단축. 병렬도는 GPU 메모리 여유(현 `--gpu-memory-utilization 0.35`) 내에서 조절.
 3. **모델 상시 웜**: 콜드 리로드 금지(예전 100s+ 지연의 주범). vLLM 컨테이너 상주(`--restart
    unless-stopped`), GDINO 모델 프로세스 내 1회 로드 후 재사용.
-4. **렌더 해상도 적정화**: 글자 읽힐 최소 해상도로(이미지 토큰 ∝ 해상도). 검증에 쓴 768/1024px
-   기준으로 브랜드별 가독-속도 균형점 확정.
+4. **해상도 이원화(속도 ↔ 품질 분리)**:
+   - **읽기·검출용 다운스케일 뷰** — VLM/GDINO 입력. 글자 읽힐 최소 해상도로(이미지 토큰 ∝ 해상도).
+     검증에 쓴 768/1024px 기준으로 가독-속도 균형점 확정. 속도는 여기서 번다.
+   - **크롭용 고해상도 마스터** — 페이지를 높은 DPI 로 1회 렌더해 보관. **크롭은 이 마스터에서** 뜬다.
+     박스 좌표는 뷰→마스터 스케일 계수로 환산. 크롭은 학습 데이터이므로 **해상도를 충분히 높게**
+     유지한다(다운스케일 뷰에서 크롭 뜨는 것 금지).
 5. **1콜/page 기본**, 박스별 개별콜은 드문 애매 페이지로 한정.
 
 목표: 카탈로그 1건을 (수동 라벨링 대비) 분 단위로 미리라벨. 회귀 방지로 처리시간을 원장에 기록.
+(주: 마스터 렌더는 크롭 품질용이라 속도 예산 밖 — 페이지당 1회 렌더 비용만 든다.)
 
 ## 8. 에러 처리
 
