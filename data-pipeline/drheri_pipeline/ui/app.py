@@ -14,7 +14,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from drheri_pipeline.db import conn
-from drheri_pipeline.ui.api import ops, runs, sources
+from drheri_pipeline.ui.api import ops, runs, sources, uploads
 from drheri_pipeline.ui.envelope import ApiError, api_error_handler, fail, unhandled_error_handler
 
 DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
@@ -32,7 +32,7 @@ async def spa(request: Request):
 
 def create_app() -> Starlette:
     conn.migrate()
-    routes = [*sources.routes, *runs.routes, *ops.routes]
+    routes = [*sources.routes, *runs.routes, *ops.routes, *uploads.routes]
     if (DIST / "assets").exists():
         routes.append(Mount("/assets", app=StaticFiles(directory=DIST / "assets")))
     routes.append(Route("/", spa, methods=["GET"]))
