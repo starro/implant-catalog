@@ -4,7 +4,7 @@
 
 **Goal:** 카탈로그 PDF 한 건에서 임플란트 픽스처를 검출·크롭하고 각 크롭에 brand/model/diameter(+length)를 미리 채운 라벨로 FiftyOne("drheri") 샘플을 생성해, 사람이 확인·수정·keep/reject 만 하면 되게 한다.
 
-**Architecture:** GPU 작업(Grounding DINO 검출, Qwen3-VL 매핑)은 DGX 의 **웜 HTTP 서비스** 두 개(vLLM :8000, GDINO :8100)로 두고, 오케스트레이션 엔진은 torch 없는 가벼운 httpx/pillow/pymupdf/fiftyone 클라이언트로 둘을 호출한다. 페이지를 **고해상도 마스터 + 다운스케일 뷰**로 이원 렌더 — 검출·VLM 은 뷰(속도), 크롭은 마스터(품질). 기존 `storage`/`taxonomy`/`review`("drheri" 데이터셋) 자산을 재사용한다.
+**Architecture:** GPU 작업(Grounding DINO 검출, Qwen3-VL 매핑)은 DGX 의 **웜 HTTP 서비스** 두 개(vLLM :8000, GDINO :8100)로 두고, 오케스트레이션 엔진은 torch 없는 가벼운 httpx/pillow/pymupdf/fiftyone 클라이언트로 둘을 호출한다. 페이지를 **단일 해상도**(dpi≈200)로 렌더해 검출·VLM·크롭에 공통 사용한다(좌표 환산 없음). 기존 `storage`/`taxonomy`/`review`("drheri" 데이터셋) 자산을 재사용한다.
 
 **Tech Stack:** Python 3.11, httpx, Pillow, PyMuPDF(fitz), FiftyOne, (GPU 컨테이너 측) transformers 4.57 Grounding DINO + vLLM Qwen3-VL-8B-Instruct.
 
@@ -14,7 +14,7 @@
 - 무거운/선택 의존성은 **함수 안에서 지연 import**(기존 `catalog_pdf`/`review` 패턴). 모듈 import 만으로 fiftyone/fitz 를 끌어오지 않는다.
 - 시간은 UTC ISO8601 문자열(`datetime.now(timezone.utc).isoformat()`), 기존 `_now()` 패턴 따른다.
 - **멱등성**: 크롭은 `storage.content_hash(png)` 로 중복 제거. 재수집해도 manifest·FiftyOne 이 안 부푼다.
-- **해상도 이원화**: 검출·VLM 입력은 다운스케일 뷰, 크롭은 고해상도 마스터. 뷰→마스터는 단일 `scale` 계수로 환산.
+- **단일 해상도 렌더**(2026-08-08 개정): 페이지를 하나의 해상도(`dpi`≈200)로 렌더해 검출·VLM·크롭에 공통 사용한다. 좌표 환산 없음. 다운스케일 뷰/마스터 분리는 제거 — 가장 약한 속도 레버였고 VLM 읽기정확도를 오히려 해쳤다. 속도는 페이지필터+병렬+웜이 책임진다. (이원 해상도는 승격지점: 초고해상도 크롭 + 빠른 소형 VLM 뷰가 동시에 필요해질 때 재도입. GDINO 는 1024 에서 검증했으니 단일 dpi 에서 threshold 를 DGX 스모크에서 재확인.)
 - FiftyOne 데이터셋 이름은 기존과 동일한 `"drheri"`(review.py `DATASET`). 신규 라벨 필드를 그 데이터셋에 증분 추가한다.
 - 새 코드 위치: `drheri_pipeline/labeling/` 서브패키지. 테스트는 기존 관례대로 `tests/` 평면 배치.
 - GPU 서비스 호출 규약(스펙 §9, 검증됨): vLLM `POST http://127.0.0.1:8000/v1/chat/completions` model `qwen3vl`; GDINO transformers `post_process_grounded_object_detection(threshold=…, text_threshold=…)`(주의: `box_threshold` 아님), 라벨은 `text_labels`, 프롬프트 `"a gray implant object"`, threshold≈0.3.
@@ -28,7 +28,7 @@ drheri_pipeline/
   sources/pdf_util.py         # (신규) parse_pages / fetch_pdf_bytes — catalog_pdf 에서 lift (DRY)
   labeling/
     __init__.py
-    render.py                 # 이원 렌더: 고해상도 마스터 + 다운스케일 뷰 (+ scale)
+    render.py                 # 단일 해상도 렌더: 검출·VLM·크롭 공통 페이지 이미지
     detect.py                 # GDINO HTTP 서비스 클라이언트 + 좌표 스케일 헬퍼
     mark.py                   # set-of-mark: 뷰에 번호 박스 오버레이
     mapper.py                 # Qwen3-VL vLLM 클라이언트 (프롬프트·파싱·하이브리드 재시도)
@@ -188,9 +188,9 @@ git commit -m "refactor: PDF 페이지파싱·바이트취득을 pdf_util 공용
 
 ---
 
-## Task 2: render — 이원 해상도 페이지 렌더러
+## Task 2: render — 단일 해상도 페이지 렌더러
 
-페이지를 고해상도 마스터(크롭용)와 다운스케일 뷰(검출·VLM용)로 렌더하고, 뷰→마스터 `scale` 계수와 페이지 텍스트를 함께 돌려준다.
+페이지를 하나의 해상도로 렌더해 검출·VLM·크롭에 공통으로 쓰는 이미지와 페이지 텍스트를 돌려준다. (2026-08-08 개정: 이원 해상도 → 단일. 좌표 환산 없음.)
 
 **Files:**
 - Create: `drheri_pipeline/labeling/__init__.py` (빈 파일), `drheri_pipeline/labeling/render.py`
@@ -199,9 +199,8 @@ git commit -m "refactor: PDF 페이지파싱·바이트취득을 pdf_util 공용
 **Interfaces:**
 - Consumes: `pdf_util.parse_pages`
 - Produces:
-  - `@dataclass RenderedPage: page_no:int; master: "PIL.Image.Image"; view: "PIL.Image.Image"; scale: float; text: str`
-    (`scale` = master.width / view.width; 뷰 좌표 × scale = 마스터 좌표)
-  - `render_pdf(pdf_path, pages: str = "", *, master_dpi: int = 300, view_long_px: int = 1024, log=print) -> Iterator[RenderedPage]`
+  - `@dataclass RenderedPage: page_no:int; image: "PIL.Image.Image"; text: str`
+  - `render_pdf(pdf_path, pages: str = "", *, dpi: int = 200, log=print) -> Iterator[RenderedPage]`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -219,16 +218,22 @@ def _make_pdf(path, pages=2):
     doc.save(str(path)); doc.close()
 
 
-def test_render_pdf_dual_resolution(tmp_path):
+def test_render_pdf_single_image(tmp_path):
     pdf = tmp_path / "c.pdf"; _make_pdf(pdf, pages=2)
-    out = list(render.render_pdf(str(pdf), master_dpi=300, view_long_px=512))
+    out = list(render.render_pdf(str(pdf), dpi=200))
     assert len(out) == 2
     p = out[0]
     assert p.page_no == 1
-    assert max(p.view.size) == 512                 # 뷰 긴 변 고정
-    assert p.master.width > p.view.width           # 마스터가 더 큼
-    assert abs(p.scale - p.master.width / p.view.width) < 1e-6
+    assert p.image.width > 0 and p.image.height > 0
+    assert p.image.width > p.image.height * 0.5    # A4 세로 렌더 형상
     assert "REF 58160" in p.text                   # 페이지 텍스트 추출
+
+
+def test_render_pdf_dpi_scales_image(tmp_path):
+    pdf = tmp_path / "c.pdf"; _make_pdf(pdf, pages=1)
+    small = list(render.render_pdf(str(pdf), dpi=100))[0]
+    big = list(render.render_pdf(str(pdf), dpi=200))[0]
+    assert big.image.width > small.image.width     # dpi 노브가 해상도를 키운다
 
 
 def test_render_pdf_page_filter(tmp_path):
@@ -245,33 +250,25 @@ Expected: FAIL — `ModuleNotFoundError: drheri_pipeline.labeling`
 - [ ] **Step 3: Implement render.py**
 
 ```python
-"""이원 해상도 페이지 렌더 — 고해상도 마스터(크롭용) + 다운스케일 뷰(검출·VLM용)."""
+"""단일 해상도 페이지 렌더 — 검출·VLM·크롭에 공통으로 쓰는 페이지 이미지 + 텍스트."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
-from pathlib import Path
 from typing import Iterator
 
-from .pdf_util_import import parse_pages  # noqa  (아래 실제 import 로 대체)
-```
-실제 상단 import 는:
-```python
 from ..sources.pdf_util import parse_pages
-```
-본문:
-```python
+
+
 @dataclass
 class RenderedPage:
     page_no: int
-    master: "object"   # PIL.Image.Image (지연 import 회피용 느슨한 타입)
-    view: "object"
-    scale: float
+    image: "object"    # PIL.Image.Image (지연 import 회피용 느슨한 타입)
     text: str
 
 
-def render_pdf(pdf_path, pages: str = "", *, master_dpi: int = 300,
-               view_long_px: int = 1024, log=print) -> Iterator[RenderedPage]:
+def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
+               log=print) -> Iterator[RenderedPage]:
     import fitz
     from PIL import Image
 
@@ -281,18 +278,11 @@ def render_pdf(pdf_path, pages: str = "", *, master_dpi: int = 300,
             if want else range(doc.page_count))
     for i in idxs:
         page = doc[i]
-        pix = page.get_pixmap(dpi=master_dpi)
-        master = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
-        long_side = max(master.size)
-        ratio = view_long_px / long_side
-        view = master.resize((max(1, round(master.width * ratio)),
-                              max(1, round(master.height * ratio))))
-        scale = master.width / view.width
-        yield RenderedPage(page_no=i + 1, master=master, view=view,
-                           scale=scale, text=page.get_text())
+        pix = page.get_pixmap(dpi=dpi)
+        image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+        yield RenderedPage(page_no=i + 1, image=image, text=page.get_text())
     doc.close()
 ```
-(주: `pdf_util_import` 줄은 착오 — 실제 코드엔 넣지 말고 `from ..sources.pdf_util import parse_pages` 만 둔다.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -303,7 +293,7 @@ Expected: PASS
 
 ```bash
 git add drheri_pipeline/labeling/__init__.py drheri_pipeline/labeling/render.py tests/test_render.py
-git commit -m "feat(labeling): 이원 해상도 페이지 렌더러(마스터+뷰)"
+git commit -m "feat(labeling): 단일 해상도 페이지 렌더러"
 ```
 
 ---
@@ -401,7 +391,7 @@ git commit -m "feat(labeling): part_number→length 범용 파서 + 브랜드 �
 
 ## Task 4: GDINO HTTP 서비스 + detect 클라이언트
 
-GPU 컨테이너에 GDINO 를 작은 HTTP 서비스로 띄우고(웜 유지), 엔진은 httpx 클라이언트로 박스를 받는다. 좌표 스케일 환산 헬퍼 포함.
+GPU 컨테이너에 GDINO 를 작은 HTTP 서비스로 띄우고(웜 유지), 엔진은 httpx 클라이언트로 박스를 받는다. (2026-08-08 개정: 단일 해상도라 좌표 환산 불필요 — `to_master` 제거. 박스는 렌더 이미지 좌표계 그대로 크롭에 쓴다.)
 
 **Files:**
 - Create: `scripts/gdino_server.py` (GPU 컨테이너에서 실행), `drheri_pipeline/labeling/detect.py`
@@ -411,22 +401,15 @@ GPU 컨테이너에 GDINO 를 작은 HTTP 서비스로 띄우고(웜 유지), �
 - Consumes: `render.RenderedPage`
 - Produces:
   - `@dataclass Box: score: float; xyxy: tuple[int,int,int,int]`
-  - `detect_fixtures(view_img, *, url="http://127.0.0.1:8100/detect", prompt="a gray implant object", threshold=0.3) -> list[Box]` (뷰 좌표계 Box)
-  - `to_master(box: Box, scale: float) -> Box` (마스터 좌표계로 환산)
+  - `detect_fixtures(image, *, url="http://127.0.0.1:8100/detect", prompt="a gray implant object", threshold=0.3) -> list[Box]` (렌더 이미지 좌표계 Box)
 - 서비스 계약: `POST /detect` body `{"image_b64": <png b64>, "prompt": str, "threshold": float}` → `{"boxes":[{"score":float,"xyxy":[x1,y1,x2,y2]}]}`
 
-- [ ] **Step 1: Write the failing test** (서비스는 httpx mock, 스케일은 순수함수)
+- [ ] **Step 1: Write the failing test** (서비스는 httpx mock)
 
 `tests/test_detect.py`:
 ```python
 from PIL import Image
 from drheri_pipeline.labeling import detect
-
-
-def test_to_master_scales_coords():
-    b = detect.Box(score=0.5, xyxy=(10, 20, 30, 40))
-    m = detect.to_master(b, scale=2.0)
-    assert m.xyxy == (20, 40, 60, 80) and m.score == 0.5
 
 
 def test_detect_fixtures_parses_service_response(monkeypatch):
@@ -472,19 +455,13 @@ def _png_b64(img) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def detect_fixtures(view_img, *, url: str = "http://127.0.0.1:8100/detect",
+def detect_fixtures(image, *, url: str = "http://127.0.0.1:8100/detect",
                     prompt: str = "a gray implant object", threshold: float = 0.3) -> list[Box]:
-    resp = httpx.post(url, json={"image_b64": _png_b64(view_img),
+    resp = httpx.post(url, json={"image_b64": _png_b64(image),
                                  "prompt": prompt, "threshold": threshold}, timeout=60)
     resp.raise_for_status()
     return [Box(score=float(b["score"]), xyxy=tuple(int(v) for v in b["xyxy"]))
             for b in resp.json()["boxes"]]
-
-
-def to_master(box: Box, scale: float) -> Box:
-    x1, y1, x2, y2 = box.xyxy
-    return Box(score=box.score, xyxy=(round(x1 * scale), round(y1 * scale),
-                                      round(x2 * scale), round(y2 * scale)))
 ```
 
 - [ ] **Step 4: Implement gdino_server.py** (GPU 컨테이너 전용, 검증된 규약 사용)
@@ -918,10 +895,10 @@ git commit -m "feat(labeling): 미리라벨 크롭 FiftyOne 증분 등록 + need
 - Test: `tests/test_runner.py`
 
 **Interfaces:**
-- Consumes: `render.render_pdf`, `detect.detect_fixtures`/`to_master`, `mark.mark_page`, `mapper.map_specs`, `partnum.parse_length`, `fiftyone_writer.register_prelabeled`, `storage`
+- Consumes: `render.render_pdf`(→`RenderedPage.image`), `detect.detect_fixtures`, `mark.mark_page`, `mapper.map_specs`, `partnum.parse_length`, `fiftyone_writer.register_prelabeled`, `storage`
 - Produces:
   - `@dataclass RunSummary: pdf:str; brand:str; pages:int; fixture_pages:int; crops:int; needs_review:int`
-  - `label_catalog(pdf_url:str, brand:str, pages:str="", *, master_dpi=300, view_long_px=1024, conf_min=0.6, max_workers=4, log=print) -> RunSummary`
+  - `label_catalog(pdf_url:str, brand:str, pages:str="", *, dpi=200, conf_min=0.6, max_workers=4, log=print) -> RunSummary`
 
 - [ ] **Step 1: Write the failing test** (모든 GPU 호출 monkeypatch — 순수 오케스트레이션 검증)
 
@@ -947,13 +924,11 @@ def test_label_catalog_end_to_end(tmp_path, monkeypatch):
     pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=2)
 
     # 페이지1: 박스 1개 / 페이지2: 박스 0개(필터로 스킵)
-    def fake_detect(view, **kw):
-        return [Box(0.5, (1, 1, 5, 5))] if getattr(fake_detect, "call", 0) == 0 or True else []
     calls = {"n": 0}
-    def fake_detect2(view, **kw):
+    def fake_detect(image, **kw):
         calls["n"] += 1
         return [Box(0.5, (1, 1, 5, 5))] if calls["n"] == 1 else []
-    monkeypatch.setattr(runner, "detect_fixtures", fake_detect2)
+    monkeypatch.setattr(runner, "detect_fixtures", fake_detect)
     monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
         BoxSpec(0, "SC", "4.1", None, "58160", 0.9, "SC 4.1")])
     written = {"recs": None}
@@ -998,7 +973,7 @@ from io import BytesIO
 from .. import storage
 from ..taxonomy import normalize_brand
 from .render import render_pdf
-from .detect import detect_fixtures, to_master
+from .detect import detect_fixtures
 from .mark import mark_page
 from .mapper import map_specs
 from .partnum import parse_length
@@ -1020,52 +995,57 @@ def _now() -> str:
 
 
 def _process_page(page, brand, conf_min, log) -> list[dict]:
-    """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트)."""
-    view_boxes = detect_fixtures(page.view)
-    if not view_boxes:
+    """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트).
+
+    단일 해상도: 검출·마크·VLM·크롭 모두 page.image 를 쓴다(좌표 환산 없음).
+    페이지 단위 예외는 격리해 한 페이지 실패가 전체를 멈추지 않게 한다(스펙 §8).
+    """
+    try:
+        boxes = detect_fixtures(page.image)
+        if not boxes:
+            return []
+        marked = mark_page(page.image, boxes)
+        specs = map_specs(marked, page.image, boxes, brand, page.text)
+        recs: list[dict] = []
+        seen: set[str] = set()
+        for i, b in enumerate(boxes):
+            crop = page.image.crop(b.xyxy)
+            buf = BytesIO(); crop.save(buf, "PNG"); png = buf.getvalue()
+            chash = storage.content_hash(png)
+            if chash in seen:
+                continue
+            seen.add(chash)
+            sp = specs[i] if i < len(specs) else None
+            model = sp.model if sp else None
+            diameter = sp.diameter if sp else None
+            length = (sp.length if sp and sp.length else
+                      parse_length(brand, sp.part_number if sp else None))
+            conf = sp.confidence if sp else 0.0
+            needs = conf < conf_min or not model or not diameter
+            dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
+                                           "catalog", chash, "png")
+            if not dst.exists():
+                dst.write_bytes(png)
+            recs.append({
+                "content_hash": chash, "path": storage.rel(dst),
+                "stage": "review", "status": "review",
+                "brand": brand, "model": model, "diameter": diameter, "length": length,
+                "part_number": sp.part_number if sp else None,
+                "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
+                "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
+                "source_page": page.page_no, "page_no": page.page_no,
+                "bbox": list(b.xyxy), "needs_review": needs,
+                "brand_norm": normalize_brand(brand), "fetched_at": _now(),
+            })
+        return recs
+    except Exception as e:  # noqa: BLE001 — 페이지 단위 예외 격리(§8)
+        log(f"[runner] page {page.page_no} 실패 — 건너뜀 ({e})")
         return []
-    marked = mark_page(page.view, view_boxes)
-    specs = map_specs(marked, page.master, view_boxes, brand, page.text)
-    recs: list[dict] = []
-    seen: set[str] = set()
-    for i, vb in enumerate(view_boxes):
-        mb = to_master(vb, page.scale)
-        crop = page.master.crop(mb.xyxy)
-        buf = BytesIO(); crop.save(buf, "PNG"); png = buf.getvalue()
-        chash = storage.content_hash(png)
-        if chash in seen:
-            continue
-        seen.add(chash)
-        sp = specs[i] if i < len(specs) else None
-        model = sp.model if sp else None
-        diameter = sp.diameter if sp else None
-        length = (sp.length if sp and sp.length else
-                  parse_length(brand, sp.part_number if sp else None))
-        conf = sp.confidence if sp else 0.0
-        needs = conf < conf_min or not model or not diameter
-        dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
-                                       "catalog", chash, "png")
-        if not dst.exists():
-            dst.write_bytes(png)
-        recs.append({
-            "content_hash": chash, "path": storage.rel(dst),
-            "stage": "review", "status": "review",
-            "brand": brand, "model": model, "diameter": diameter, "length": length,
-            "part_number": sp.part_number if sp else None,
-            "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
-            "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
-            "source_page": page.page_no, "page_no": page.page_no,
-            "bbox": list(mb.xyxy), "needs_review": needs,
-            "brand_norm": normalize_brand(brand), "fetched_at": _now(),
-        })
-    return recs
 
 
-def label_catalog(pdf_url: str, brand: str, pages: str = "", *, master_dpi: int = 300,
-                  view_long_px: int = 1024, conf_min: float = 0.6,
-                  max_workers: int = 4, log=print) -> RunSummary:
-    pages_list = list(render_pdf(pdf_url, pages, master_dpi=master_dpi,
-                                 view_long_px=view_long_px, log=log))
+def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
+                  conf_min: float = 0.6, max_workers: int = 4, log=print) -> RunSummary:
+    pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log))
     all_recs: list[dict] = []
     fixture_pages = 0
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -1157,13 +1137,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pdf", required=True, help="PDF URL 또는 로컬/NAS 파일 경로")
     ap.add_argument("--brand", required=True)
     ap.add_argument("--pages", default="", help='예: "12-26, 30" (비우면 전체)')
-    ap.add_argument("--master-dpi", type=int, default=300)
-    ap.add_argument("--view-long-px", type=int, default=1024)
+    ap.add_argument("--dpi", type=int, default=200)
     ap.add_argument("--conf-min", type=float, default=0.6)
     ap.add_argument("--max-workers", type=int, default=4)
     a = ap.parse_args(argv)
-    summ = label_catalog(a.pdf, a.brand, a.pages, master_dpi=a.master_dpi,
-                         view_long_px=a.view_long_px, conf_min=a.conf_min,
+    summ = label_catalog(a.pdf, a.brand, a.pages, dpi=a.dpi, conf_min=a.conf_min,
                          max_workers=a.max_workers)
     print(summ)
     return 0
@@ -1280,17 +1258,6 @@ git commit -m "docs: DGX 라벨링 엔진 배치 절차 + BEGO 스모크"
 - §9 테스트/호출규약 → 각 Task TDD + Task 4 gdino_server·Task 6 mapper 가 검증된 규약 사용. 통합 스모크 → Task 10 Step 4.
 - §10 인프라(vLLM 재사용·GDINO 서비스·Mongo/FiftyOne·NAS ro) → Task 4·10.
 
-**2. Placeholder scan:** "TODO/TBD" 없음. Task 2 Step 3 의 `pdf_util_import` 줄은 착오 방지 주석으로 명시 제거 지시함. Task 8 §8 갭 보완 지침을 명문화(빈 리스트 반환).
+**2. Placeholder scan:** "TODO/TBD" 없음. (2026-08-08 개정: 구 Task 2 의 `pdf_util_import` 데코이 줄은 단일해상도 render.py 재작성으로 소멸.) Task 8 §8 페이지 예외 격리는 `_process_page` 본문에 try/except 로 이미 인라인됨(별도 래핑 불필요).
 
-**3. Type consistency:** `Box(score,xyxy)` — detect/mark/mapper/runner 일관. `BoxSpec(index,model,diameter,length,part_number,confidence,evidence)` — mapper/runner 일관. `RenderedPage(page_no,master,view,scale,text)` — render/runner 일관. `register_prelabeled(records,log)` — writer/runner 일관. 레코드 dict 키(content_hash,path,brand,model,diameter,length,part_number,ai_confidence,evidence,source_page,bbox,needs_review) — runner 생성 ↔ writer 소비 일치.
-
-**갭 보완 반영:** Task 8 Step 3 구현 시 `_process_page` 를 try/except 로 감싸 페이지 단위 예외 격리(§8). runner 코드의 `_process_page` 상단에 다음을 추가한다:
-```python
-def _process_page(page, brand, conf_min, log):
-    try:
-        return _process_page_inner(page, brand, conf_min, log)   # 위 본문을 _inner 로
-    except Exception as e:  # noqa: BLE001
-        log(f"[runner] page {page.page_no} 실패 — 건너뜀 ({e})")
-        return []
-```
-(테스트 `test_runner.py` 는 정상경로만 검증하므로 이 래핑으로 깨지지 않는다.)
+**3. Type consistency:** `Box(score,xyxy)` — detect/mark/mapper/runner 일관. `BoxSpec(index,model,diameter,length,part_number,confidence,evidence)` — mapper/runner 일관. `RenderedPage(page_no,image,text)` — render/runner 일관(단일해상도, 좌표 환산 없음). `register_prelabeled(records,log)` — writer/runner 일관. 레코드 dict 키(content_hash,path,brand,model,diameter,length,part_number,ai_confidence,evidence,source_page,bbox,needs_review) — runner 생성 ↔ writer 소비 일치.
