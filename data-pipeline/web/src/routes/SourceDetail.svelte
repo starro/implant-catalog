@@ -99,6 +99,25 @@
       toast(e.message, 'error');
     }
   }
+
+  async function reset() {
+    const f = doc.funnel;
+    let msg = `이 문서의 수집 결과를 모두 지웁니다 (추출 ${f.extracted}장). `
+      + '문서·설정은 남아 바로 재수집할 수 있습니다.';
+    if (f.training > 0) msg += `\n\n⚠️ 학습 승급된 ${f.training}장도 함께 삭제됩니다.`;
+    if (!confirm(msg)) return;
+    busy = true;
+    try {
+      const r = await post(`/api/sources/${id}/reset`);
+      toast(`수집 초기화 — ${r.deleted_images}장 삭제`, 'success');
+      await load();
+      await loadSources();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 {#if !doc}
@@ -130,6 +149,7 @@
     <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri/samples?view=doc-{doc.id}"
        target="_blank" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
+    <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
     <button onclick={archive}>보관</button>
   </div>
 
@@ -142,7 +162,7 @@
       <div class="row">
         <div><div class="label">conf</div><input bind:value={edit.conf} /></div>
         <div><div class="label">dpi</div><input bind:value={edit.dpi} /></div>
-        <div><div class="label">페이지</div><input bind:value={edit.pages} /></div>
+        <div><div class="label">페이지</div><input bind:value={edit.pages} placeholder="예: 12-26, 30" /></div>
       </div>
       <div class="label">메모</div>
       <input bind:value={edit.memo} />
@@ -178,4 +198,5 @@
   .row > * { flex: 1; }
   .memo { color: var(--muted); }
   .archived { color: var(--rejected); margin-left: 6px; }
+  button.danger { color: var(--rejected); border-color: var(--rejected); }
 </style>

@@ -126,7 +126,7 @@
     <div class="row">
       <input bind:value={form.conf} placeholder="conf" />
       <input bind:value={form.dpi} placeholder="dpi" />
-      <input bind:value={form.pages} placeholder="페이지 (비우면 전체)" />
+      <input bind:value={form.pages} placeholder="페이지 예: 12-26, 30 (비우면 전체)" />
     </div>
 
     <div class="label">메모</div>

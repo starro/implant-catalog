@@ -6,6 +6,7 @@ from starlette.requests import Request
 from starlette.routing import Route
 
 from drheri_pipeline.db import conn, queries, writes
+from drheri_pipeline.services import purge
 from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 
 _UPDATE_MAP = {"name": "name", "memo": "memo", "conf": "default_conf",
@@ -109,6 +110,15 @@ async def archive_source(request: Request):
     return ok({"id": doc_id})
 
 
+async def reset_source(request: Request):
+    """수집 초기화 — 문서는 유지하고 수집 결과(이미지·런·FiftyOne 샘플·파일)만 지운다."""
+    doc_id = request.path_params["doc_id"]
+    result = await run_in_threadpool(purge.reset_document, doc_id)
+    if result is None:
+        raise ApiError("not_found", "문서를 찾을 수 없습니다", status=404)
+    return ok(result)
+
+
 routes = [
     Route("/api/sources", list_sources, methods=["GET"]),
     Route("/api/sources/check", check_url, methods=["GET"]),
@@ -116,4 +126,5 @@ routes = [
     Route("/api/sources/{doc_id:int}", get_source, methods=["GET"]),
     Route("/api/sources/{doc_id:int}/update", update_source, methods=["POST"]),
     Route("/api/sources/{doc_id:int}/archive", archive_source, methods=["POST"]),
+    Route("/api/sources/{doc_id:int}/reset", reset_source, methods=["POST"]),
 ]

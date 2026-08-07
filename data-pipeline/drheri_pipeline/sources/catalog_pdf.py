@@ -80,10 +80,35 @@ def _download_pdf(url: str, brand: str, log) -> Path:
 
 
 def _parse_pages(pages: str) -> list[int] | None:
+    """페이지 지정 파싱. '' → None(전체), '12' → [12], '12-16' → [12..16],
+    '40-42, 12-14, 13' → 정렬·중복제거된 [12,13,14,40,41,42].
+
+    잘못된 입력(숫자 아님/하한>상한/0 이하/형식 불량)은 ValueError 로 막아
+    수집이 조용히 깨지지 않게 한다.
+    """
     pages = (pages or "").strip()
     if not pages:
         return None
-    return [int(x) for x in pages.replace(" ", "").split(",") if x]
+    result: set[int] = set()
+    for token in pages.replace(" ", "").split(","):
+        if not token:
+            continue
+        if "-" in token:
+            parts = token.split("-")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(f"잘못된 페이지 범위: '{token}' (예: 12-26)")
+            lo, hi = int(parts[0]), int(parts[1])   # int() 가 비숫자면 ValueError
+            if lo < 1 or hi < 1:
+                raise ValueError(f"페이지는 1 이상이어야 합니다: '{token}'")
+            if lo > hi:
+                raise ValueError(f"범위 시작이 끝보다 큽니다: '{token}' (예: 12-26)")
+            result.update(range(lo, hi + 1))
+        else:
+            n = int(token)                          # 비숫자면 ValueError
+            if n < 1:
+                raise ValueError(f"페이지는 1 이상이어야 합니다: '{token}'")
+            result.add(n)
+    return sorted(result)
 
 
 def ingest(config, log=print) -> list[dict]:

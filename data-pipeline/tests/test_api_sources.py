@@ -92,3 +92,29 @@ def test_update_ignores_non_whitelisted_fields(client):
     assert detail["name"] == "정상 갱신"  # 화이트리스트 안 필드는 반영된다
     assert detail["status"] == "active"  # status 는 화이트리스트 밖이므로 무시된다
     assert detail["id"] == doc_id        # id 도 무시된다(원래 id 그대로)
+
+
+def test_reset_clears_collection_keeps_document(client, monkeypatch):
+    from drheri_pipeline.services import purge
+    monkeypatch.setattr(purge, "delete_fiftyone_samples", lambda hashes: 0)
+    doc_id = _create(client).json()["data"]["id"]
+    # 이미지 2장 심기
+    from drheri_pipeline.db import conn as _conn
+    with _conn.session() as cx:
+        for h in ("x1", "x2"):
+            cx.execute("""INSERT INTO image (content_hash, ext, rel_path, created_at)
+                          VALUES (?,'png',?, '2026-07-21T00:00:00+00:00')""", (h, f"review/{h}.png"))
+            cx.execute("""INSERT INTO image_origin (content_hash, document_id, created_at)
+                          VALUES (?,?, '2026-07-21T00:00:00+00:00')""", (h, doc_id))
+
+    r = client.post(f"/api/sources/{doc_id}/reset")
+    assert r.status_code == 200
+    assert r.json()["data"]["deleted_images"] == 2
+    # 문서는 그대로, 퍼널 0
+    detail = client.get(f"/api/sources/{doc_id}").json()["data"]
+    assert detail["status"] == "active"
+    assert detail["funnel"]["extracted"] == 0
+
+
+def test_reset_missing_document_404(client):
+    assert client.post("/api/sources/9999/reset").status_code == 404
