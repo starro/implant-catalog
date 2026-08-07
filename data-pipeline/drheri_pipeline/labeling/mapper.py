@@ -38,7 +38,7 @@ def _spec(d: dict) -> BoxSpec:
     return BoxSpec(index=int(d.get("index", 0)), model=d.get("model"),
                    diameter=d.get("diameter"), length=d.get("length"),
                    part_number=d.get("part_number"),
-                   confidence=float(d.get("confidence", 0.0)),
+                   confidence=float(d.get("confidence") or 0.0),
                    evidence=(d.get("evidence") or "")[:300])
 
 

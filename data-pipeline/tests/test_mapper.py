@@ -37,3 +37,12 @@ def test_map_specs_count_mismatch_falls_back_to_per_box(monkeypatch):
     boxes = [Box(0.5, (1, 1, 5, 5)), Box(0.5, (6, 6, 9, 9))]
     specs = mapper.map_specs(view, master, boxes, "BEGO", "txt")
     assert [s.model for s in specs] == ["A", "B"] and len(specs) == 2
+
+
+def test_map_specs_null_confidence_does_not_crash(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
+        return _resp([{"index": 0, "model": "SC", "diameter": "4.1", "confidence": None}])
+    monkeypatch.setattr(mapper.httpx, "post", fake_post)
+    view = Image.new("RGB", (20, 20)); master = Image.new("RGB", (40, 40))
+    specs = mapper.map_specs(view, master, [Box(0.5, (1, 1, 5, 5))], "BEGO", "txt")
+    assert len(specs) == 1 and specs[0].confidence == 0.0 and specs[0].model == "SC"
