@@ -45,7 +45,7 @@
   <div class="right">
     <EngineControl />
     {#if fiftyoneUrl}
-      <a href={fiftyoneUrl} target="_blank" rel="noreferrer">FiftyOne ↗</a>
+      <a href={fiftyoneUrl} target="fiftyone" rel="noreferrer">FiftyOne ↗</a>
     {/if}
     <button class="primary" onclick={sync} disabled={syncing}>
       {syncing ? '반영 중…' : '검수결과 반영'}

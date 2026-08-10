@@ -155,7 +155,7 @@
     <button onclick={checkStatus} disabled={busy}>상태 확인</button>
     {#if doc.funnel.extracted > 0}
       <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri?view=doc-{doc.id}"
-         target="_blank" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
+         target="fiftyone" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
     {/if}
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
