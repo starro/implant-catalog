@@ -96,11 +96,15 @@ def record_image(cx: sqlite3.Connection, rec: dict, document_id: int,
     ext = (rec.get("path") or "").rsplit(".", 1)[-1] or "png"
     cx.execute(
         """INSERT INTO image (content_hash, ext, brand, series, surface, model, modality,
-                              review_state, stage, rel_path, created_at)
-           VALUES (?,?,?,?,?,?,?, 'pending', 'review', ?, ?)
+                              review_state, stage, rel_path, created_at,
+                              is_fixture, diameter, diameter_src, needs_review)
+           VALUES (?,?,?,?,?,?,?, 'pending', 'review', ?, ?, ?,?,?,?)
            ON CONFLICT(content_hash) DO NOTHING""",
         (h, ext, rec.get("brand"), rec.get("series"), rec.get("surface"),
-         rec.get("model"), rec.get("modality"), rec.get("path"), now),
+         rec.get("model"), rec.get("modality"), rec.get("path"), now,
+         1 if rec.get("is_fixture") else (0 if rec.get("is_fixture") is False else None),
+         rec.get("diameter"), rec.get("diameter_src"),
+         1 if rec.get("needs_review") else 0),
     )
     bbox = rec.get("bbox")
     cx.execute(

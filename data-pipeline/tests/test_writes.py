@@ -206,3 +206,24 @@ def test_record_image_preserves_manual_labels_on_rescan(data_root):
     assert img_after_rescan["brand"] == "DENTIUM"
     assert img_after_rescan["series"] == "TSIII"
     assert img_after_rescan["model"] == "TSIII4010S"
+
+
+def test_record_image_stores_new_fields(tmp_path, monkeypatch):
+    from drheri_pipeline import storage
+    from drheri_pipeline.db import conn, writes
+    monkeypatch.setattr(storage, "DATA_ROOT", tmp_path)
+    conn.migrate()
+    rec = {"content_hash": "h1", "path": "review/BEGO/catalog/h1.png", "brand": "BEGO",
+           "model": "SC", "modality": "catalog", "page_no": 18, "bbox": [1, 2, 3, 4],
+           "is_fixture": True, "diameter": "4.1", "diameter_src": "geom", "needs_review": False}
+    with conn.session() as cx:
+        d = writes.create_document(cx, brand_raw="BEGO", name="c", url="u1",
+                                   source_type="catalog_vlm", default_conf=0.3, default_dpi=200,
+                                   default_pages="", default_series="_unknown", memo="")
+        writes.record_image(cx, rec, d, None)
+    cx = conn.connect()
+    row = cx.execute("SELECT is_fixture, diameter, diameter_src, needs_review "
+                     "FROM image WHERE content_hash='h1'").fetchone()
+    cx.close()
+    assert row["diameter"] == "4.1" and row["diameter_src"] == "geom"
+    assert row["is_fixture"] == 1 and row["needs_review"] == 0
