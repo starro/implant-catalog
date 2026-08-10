@@ -13,6 +13,7 @@ from .detect import detect_fixtures
 from .mark import mark_page
 from .mapper import map_specs
 from .crop_judge import judge_fixtures
+from .spec_mark import spec_for_boxes
 from .heading_model import model_from_heading
 from .geom import diameter_for_boxes
 from .partnum_geom import codes_for_boxes, lengths_for_boxes
@@ -22,11 +23,12 @@ from .fiftyone_writer import register_prelabeled
 # conf_min 은 이제 GDINO 검출 민감도(낮을수록 더 검출)이고, 이건 라벨 신뢰도가 낮은 크롭을 거른다.
 NEEDS_REVIEW_CONF = 0.5
 
-# is_fixture 판단 방식 스위치 — 되돌리기용.
-#   "crop": 박스별 개별 크롭 1콜(기본). 조밀한 페이지에서 set-of-mark 실패를 해결(실측 0/27→27/27),
-#           더 빠름. 모델/시리즈는 페이지 제목 텍스트에서 뽑는다(heading_model).
-#   "som" : 예전 set-of-mark 1콜(mapper.map_specs). 문제 시 이 값으로만 바꾸면 즉시 원복.
-JUDGE_MODE = "crop"
+# 라벨링 방식 스위치 — 되돌리기용(한 줄로 복귀).
+#   "mark": 박스별 단일마크 1콜(기본). is_fixture+모델+지름+길이+코드 통합. set-of-mark 의
+#           grounding 붕괴를 마크 1개로 해결(실측 NH p3: 지름 정확·길이 대부분·코드까지).
+#   "crop": 박스별 크롭 1콜(is_fixture만) + 스펙은 좌표추출. 빠르지만 좌표는 레이아웃 특화.
+#   "som" : 예전 set-of-mark 1콜(mapper.map_specs). 조밀 페이지에서 실패.
+JUDGE_MODE = "mark"
 
 # 모델/시리즈를 페이지 제목에서 뽑을지 여부. 기본 False — 실측(Hiossen)에서 '가장 큰 폰트'가
 # 시리즈명이 아니라 마케팅 헤드라인("Meet…", "Smiles that last a lifetime")이라 오염이 심함.
@@ -60,24 +62,45 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             return []
         # 박스를 읽기순서(위→아래, 좌→우)로 정렬 후 번호 매김 — 표 읽는 순서와 맞아 VLM 정렬이 쉬워진다
         boxes = sorted(boxes, key=lambda b: (b.xyxy[1], b.xyxy[0]))
-        # is_fixture 판단 — JUDGE_MODE 로 스위치(기본 crop). 어느 쪽이든 박스순 배열로 통일.
-        if JUDGE_MODE == "som":
-            specs = map_specs(mark_page(page.image, boxes), page.image, boxes, brand, page.text)
+        n = len(boxes)
+        # 스펙(모델/지름/길이/코드) + is_fixture 를 JUDGE_MODE 로 산출 — 전부 박스순 배열로 통일.
+        if JUDGE_MODE == "mark":
+            # 단일마크: 박스 1개만 마크한 풀페이지 1콜 → is_fixture+스펙 통합(실측: 지름 정확·길이 대부분).
+            specs = spec_for_boxes(page.image, boxes, brand)
             is_fix = [s.is_fixture for s in specs]
             confs = [s.confidence for s in specs]
             evids = [s.evidence for s in specs]
-            models = [s.model for s in specs]      # 구방식은 VLM 이 모델도 줌
+            models = [s.model for s in specs]
+            dia_list = [s.diameter for s in specs]
+            dia_src_list = ["vlm_mark" if s.diameter else None for s in specs]
+            len_list = [s.length for s in specs]
+            part_list = [s.part_number for s in specs]
+            part_src_list = ["vlm_mark" if s.part_number else None for s in specs]
         else:
-            judges = judge_fixtures(page.image, boxes)     # 박스별 개별 크롭 1콜
-            is_fix = [j.is_fixture for j in judges]
-            confs = [j.confidence for j in judges]
-            evids = [j.evidence for j in judges]
-            # 시리즈=페이지 제목 추출은 마케팅 헤드라인 오염이 심해 기본 비활성(빈칸 > 틀린값).
-            page_model = model_from_heading(page.heading, brand) if MODEL_FROM_HEADING else None
-            models = [page_model] * len(boxes)
-        geom_dias = diameter_for_boxes(page.words, boxes)   # 좌표 기반 직경(없으면 None)
-        code_lists = codes_for_boxes(page.words, boxes)     # 좌표 기반 주문코드(없으면 [])
-        len_lists = lengths_for_boxes(page.words, boxes)    # 좌표 기반 길이(같은 행 오른쪽, 없으면 None)
+            # crop/som: 스펙은 좌표추출 공용, is_fixture 판단 방식만 다름.
+            geom_dias = diameter_for_boxes(page.words, boxes)
+            code_lists = codes_for_boxes(page.words, boxes)
+            len_lists = lengths_for_boxes(page.words, boxes)
+            dia_list = [geom_dias[i] if i < len(geom_dias) else None for i in range(n)]
+            dia_src_list = ["geom" if d else None for d in dia_list]
+            len_list = [len_lists[i] if i < len(len_lists) else None for i in range(n)]
+            part_list = [",".join(code_lists[i]) if i < len(code_lists) and code_lists[i] else None
+                         for i in range(n)]
+            part_src_list = ["text" if p else None for p in part_list]
+            if JUDGE_MODE == "som":
+                specs = map_specs(mark_page(page.image, boxes), page.image, boxes, brand, page.text)
+                is_fix = [s.is_fixture for s in specs]
+                confs = [s.confidence for s in specs]
+                evids = [s.evidence for s in specs]
+                models = [s.model for s in specs]
+            else:   # crop
+                judges = judge_fixtures(page.image, boxes)
+                is_fix = [j.is_fixture for j in judges]
+                confs = [j.confidence for j in judges]
+                evids = [j.evidence for j in judges]
+                # 시리즈=페이지 제목 추출은 마케팅 헤드라인 오염이 심해 기본 비활성(빈칸 > 틀린값).
+                page_model = model_from_heading(page.heading, brand) if MODEL_FROM_HEADING else None
+                models = [page_model] * n
         recs: list[dict] = []
         seen: set[str] = set()
         for i, b in enumerate(boxes):
@@ -87,21 +110,15 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             if chash in seen:
                 continue
             seen.add(chash)
-            model = models[i] if i < len(models) else None
-            geom_d = geom_dias[i] if i < len(geom_dias) else None
-            # 직경: 기하(좌표) 우선 — 8B 가 못하는 렌더↔직경 위치매칭을 결정적으로. 없으면 VLM.
-            # 지름: 좌표(geom)로 확실할 때만 채운다. VLM 추측은 틀린 값(일괄 4.1)을 만들어 제거 —
-            #       애매하면 None → 사람이 FiftyOne 에서 채움(빈칸 > 틀린값 원칙).
-            diameter = geom_d
-            diameter_src = "geom" if geom_d else None
-            # 주문코드: 텍스트 좌표추출만(정확). VLM 추측 안 씀. 파싱도 안 하고 '사람 참고키'로만 저장.
-            codes = code_lists[i] if i < len(code_lists) else []
-            part_number = ",".join(codes) if codes else None
-            part_number_src = "text" if codes else None
-            # 길이: 좌표(같은 행 오른쪽 L값)로 확실할 때만. 컬럼/모호면 None → 사람이 채움.
-            length = len_lists[i] if i < len(len_lists) else None
-            conf = confs[i] if i < len(confs) else 0.0
-            is_fixture = is_fix[i] if i < len(is_fix) else None
+            # 모드별로 채운 박스순 스펙 배열을 인덱싱(mark=VLM 단일마크, crop/som=좌표).
+            model = models[i]
+            diameter = dia_list[i]
+            diameter_src = dia_src_list[i]
+            part_number = part_list[i]
+            part_number_src = part_src_list[i]
+            length = len_list[i]
+            conf = confs[i]
+            is_fixture = is_fix[i]
             # needs_review = 저신뢰·모델없음·비픽스처. 지름/길이 빈칸은 '의도된 것'이라 조건에서 뺀다.
             needs = conf < NEEDS_REVIEW_CONF or not model or is_fixture is False
             dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
