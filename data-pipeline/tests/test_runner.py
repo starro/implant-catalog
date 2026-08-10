@@ -26,6 +26,7 @@ def test_label_catalog_end_to_end(tmp_path, monkeypatch):
         return [Box(0.5, (1, 1, 5, 5))] if calls["n"] == 1 else []
     monkeypatch.setattr(runner, "detect_fixtures", fake_detect)
     monkeypatch.setattr(runner, "judge_fixtures", lambda *a, **k: [FixtureJudge(True, 0.9, "ok")])
+    monkeypatch.setattr(runner, "MODEL_FROM_HEADING", True)   # 배선 확인용(기본은 꺼짐)
     monkeypatch.setattr(runner, "model_from_heading", lambda *a, **k: "SC")
     written = {"recs": None}
     monkeypatch.setattr(runner, "register_prelabeled",

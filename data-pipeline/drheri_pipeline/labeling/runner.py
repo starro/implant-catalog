@@ -28,6 +28,11 @@ NEEDS_REVIEW_CONF = 0.5
 #   "som" : 예전 set-of-mark 1콜(mapper.map_specs). 문제 시 이 값으로만 바꾸면 즉시 원복.
 JUDGE_MODE = "crop"
 
+# 모델/시리즈를 페이지 제목에서 뽑을지 여부. 기본 False — 실측(Hiossen)에서 '가장 큰 폰트'가
+# 시리즈명이 아니라 마케팅 헤드라인("Meet…", "Smiles that last a lifetime")이라 오염이 심함.
+# 신뢰 가능한 시리즈 출처(문서 등록 시 default_series 등) 확보 전까지 model 은 비운다(빈칸 > 틀린값).
+MODEL_FROM_HEADING = False
+
 
 @dataclass
 class RunSummary:
@@ -67,8 +72,9 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             is_fix = [j.is_fixture for j in judges]
             confs = [j.confidence for j in judges]
             evids = [j.evidence for j in judges]
-            page_model = model_from_heading(page.heading, brand)   # 시리즈=페이지 제목(텍스트)
-            models = [page_model] * len(boxes)     # 한 페이지 = 한 시리즈(제목 모호하면 None)
+            # 시리즈=페이지 제목 추출은 마케팅 헤드라인 오염이 심해 기본 비활성(빈칸 > 틀린값).
+            page_model = model_from_heading(page.heading, brand) if MODEL_FROM_HEADING else None
+            models = [page_model] * len(boxes)
         geom_dias = diameter_for_boxes(page.words, boxes)   # 좌표 기반 직경(없으면 None)
         code_lists = codes_for_boxes(page.words, boxes)     # 좌표 기반 주문코드(없으면 [])
         len_lists = lengths_for_boxes(page.words, boxes)    # 좌표 기반 길이(같은 행 오른쪽, 없으면 None)
