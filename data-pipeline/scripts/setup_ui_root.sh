@@ -10,8 +10,8 @@ H="${H:-$(cd "$(dirname "$0")/.." && pwd)}"
 PY=$H/.venv/bin/python
 
 echo "=== 1) UI 가 FiftyOne 정지/기동/재기동할 수 있게 sudo 권한 허용 ==="
-echo "$U ALL=(root) NOPASSWD: /usr/bin/systemctl stop drheri-fiftyone, /usr/bin/systemctl start drheri-fiftyone, /usr/bin/systemctl restart drheri-fiftyone" > /etc/sudoers.d/drheri-ui
-chmod 440 /etc/sudoers.d/drheri-ui
+echo "$U ALL=(root) NOPASSWD: /usr/bin/systemctl stop drheri-fiftyone, /usr/bin/systemctl start drheri-fiftyone, /usr/bin/systemctl restart drheri-fiftyone" > /etc/sudoers.d/catalog-ui
+chmod 440 /etc/sudoers.d/catalog-ui
 visudo -c >/dev/null && echo "  sudoers OK"
 
 echo "=== 2) 방화벽 3000 확인 ==="
@@ -19,7 +19,7 @@ firewall-cmd --permanent --add-port=3000/tcp >/dev/null 2>&1 || true
 firewall-cmd --reload >/dev/null 2>&1 || true
 
 echo "=== 3) UI systemd 유닛 ==="
-cat > /etc/systemd/system/drheri-ui.service <<EOF
+cat > /etc/systemd/system/catalog-ui.service <<EOF
 [Unit]
 Description=Dr.HERi 데이터 파이프라인 관리 UI
 After=network-online.target
@@ -46,9 +46,9 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable drheri-ui >/dev/null 2>&1
-systemctl restart drheri-ui
+systemctl enable catalog-ui >/dev/null 2>&1
+systemctl restart catalog-ui
 sleep 5
 echo "=== 4) 상태 ==="
-systemctl is-active drheri-ui || true
+systemctl is-active catalog-ui || true
 ss -tln | grep ":3000" || echo "  (아직 리스닝 전)"

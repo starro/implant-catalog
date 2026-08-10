@@ -123,7 +123,7 @@ GPU 작업만 컨테이너, 나머지(등록·기록·모니터·정리)는 호�
 ## 10. 배치 (DGX 호스트)
 
 - 관리 API = 호스트 venv(3.12)에 `pip install starlette uvicorn httpx python-multipart`(+ fiftyone 이미 있음), `web/dist` 빌드.
-- **systemd 서비스 `drheri-ui`**(FiftyOne `fiftyone-drheri` 와 동형): `uvicorn drheri_pipeline.ui.app:app --host 0.0.0.0 --port 3000`. IP 접속.
+- **systemd 서비스 `catalog-ui`**(FiftyOne `fiftyone-drheri` 와 동형): `uvicorn drheri_pipeline.ui.app:app --host 0.0.0.0 --port 3000`. IP 접속.
 - 1회 셋업: `sudo usermod -aG docker sh_lee`(무중단, exec sudo 제거). 컨테이너 재생성 없음.
 - `DATA_ROOT=/home/sh_lee/drheri-data`(호스트 영구), FiftyOne 서비스와 동일 경로.
 

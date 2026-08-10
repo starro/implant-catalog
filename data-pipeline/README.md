@@ -82,7 +82,7 @@ FIFTYONE_DATABASE_VALIDATION=false .venv/bin/python -m scripts.fiftyone_saved_vi
 
 # 4) 서비스 재기동 (root: su -)
 su - -c "bash /home/jay8126/Dr.HERi/data-pipeline/scripts/setup_ui_root.sh"
-su - -c "systemctl restart drheri-dagster drheri-ui"
+su - -c "systemctl restart catalog-ui"
 ```
 
 검증:

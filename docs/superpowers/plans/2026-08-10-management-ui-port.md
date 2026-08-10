@@ -37,7 +37,7 @@ web/src/
   components/FunnelBar.svelte  # 수정: 라벨 한국어(검출/검수대기/학습/버림)
   routes/*.svelte, lib/*.js    # 수정: "퍼널"→"단계별 현황" 표기
 pyproject.toml             # 수정: dagster 제거, requires-python 상한 제거
-docs/DGX_UI_DEPLOY.md       # 신규: 호스트 배치 절차(systemd drheri-ui, docker 그룹)
+docs/DGX_UI_DEPLOY.md       # 신규: 호스트 배치 절차(systemd catalog-ui, docker 그룹)
 tests/                     # test_runner_exec.py(신규), test_dagster_* 삭제, 기존 db/api 테스트 확장
 ```
 
@@ -812,7 +812,7 @@ git commit -m "feat(web): 단계별 현황 한국어화(검출/검수대기/학�
 
 ---
 
-## Task 9: DGX 호스트 배치 — systemd drheri-ui + docker 그룹
+## Task 9: DGX 호스트 배치 — systemd catalog-ui + docker 그룹
 
 관리 API 를 DGX 호스트에 systemd 서비스로 올리고 IP 접속. sh_lee 를 docker 그룹에 넣어 exec sudo 제거.
 산출물 = 배치 문서 + 스모크.
@@ -848,7 +848,7 @@ sudo systemd-run --uid=sh_lee --gid=sh_lee \
   --setenv=DATA_ROOT=/home/sh_lee/drheri-data \
   --setenv=PYTHONPATH=/home/sh_lee/engine \
   --setenv=ENGINE_CONTAINER=vllm-shlee \
-  --unit=drheri-ui \
+  --unit=catalog-ui \
   /home/sh_lee/foenv/bin/uvicorn drheri_pipeline.ui.app:app --host 0.0.0.0 --port 3000
 ```
 검증: `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/` → 200(또는 SPA). `ss -tlnp | grep 3000` 0.0.0.0.
@@ -860,7 +860,7 @@ sudo systemd-run --uid=sh_lee --gid=sh_lee \
 
 - [ ] **Step 5: 문서화 + 커밋**
 
-`docs/DGX_UI_DEPLOY.md` 에 위 절차(docker 그룹·venv·빌드·systemd·스모크·재기동 `systemctl restart drheri-ui`) 정리.
+`docs/DGX_UI_DEPLOY.md` 에 위 절차(docker 그룹·venv·빌드·systemd·스모크·재기동 `systemctl restart catalog-ui`) 정리.
 ```bash
 git add docs/DGX_UI_DEPLOY.md
 git commit -m "docs: DGX 관리 UI 호스트 배치 절차 + BEGO 스모크"
