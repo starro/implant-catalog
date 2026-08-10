@@ -15,20 +15,23 @@ import httpx
 
 _URL = "http://127.0.0.1:8000/v1/chat/completions"
 
-_SYS = ("You label dental implant catalog/manual pages. Return ONLY a JSON array, no prose. "
-        "The image has red boxes each with a number. Look at what is INSIDE each numbered "
-        "box. Some boxes really are an implant fixture (a screw-shaped implant body); others "
-        "may be a diagram, tool, x-ray, or illustration — NOT a fixture. Judge each honestly, "
-        "and when a box is a fixture find ITS spec from the page text/table.")
+_SYS = ("You label dental implant pages. Return ONLY a JSON array, no prose. The image has "
+        "red numbered boxes; each box outlines ONE rendered object. LOOK AT THE OBJECT INSIDE "
+        "each numbered box and match it to ITS OWN entry on the page — read the size printed "
+        "next to that box or its own column in the table. Different boxes usually show "
+        "DIFFERENT diameters (each render represents one diameter); do NOT just list the "
+        "table's rows in order. Also judge is_fixture: false when the boxed object is not "
+        "actually an implant fixture (a diagram, tool, x-ray, or illustration).")
 _PROMPT = ('There are exactly {n} numbered red boxes (0..{last}). Return a JSON array of '
            'EXACTLY {n} objects, one per box, using that box number as "index" (0-based). '
-           'Include every box even if unsure (use nulls). Each object: '
+           'Each render usually represents one DIAMETER (a family of lengths), so report the '
+           'diameter for each box; leave length null unless that box clearly maps to a single '
+           'length. Include every box (use nulls if unsure). Each object: '
            '{{"index":int,"is_fixture":bool,"model":str|null,"diameter":str|null,'
            '"length":str|null,"part_number":str|null,"confidence":0..1,"evidence":str}}. '
-           'is_fixture=false when the box is NOT a real implant fixture (diagram/tool/x-ray/'
-           'illustration). Give an HONEST confidence 0..1 — do NOT always answer 1; lower it '
-           'when the box is not a clear fixture or the spec is uncertain. '
-           'Brand is {brand}. Page text:\n{page_text}')
+           'is_fixture=false for non-fixtures (diagram/tool/x-ray/illustration). Give an '
+           'HONEST confidence 0..1 — do NOT always answer 1; lower it when the box is not a '
+           'clear fixture or the diameter is uncertain. Brand is {brand}. Page text:\n{page_text}')
 
 
 @dataclass
