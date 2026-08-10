@@ -11,7 +11,7 @@ def test_exec_cmd_shape():
     assert "--brand" in joined and "BEGO" in joined
     assert "--pages" in joined and "12-26" in joined
     # DATA_ROOT 은 런별 tmp 로
-    assert "/engine/run_7" in joined
+    assert "DATA_ROOT=/engine/run_7" in joined
 
 
 def test_exec_cmd_omits_empty_pages():
