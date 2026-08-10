@@ -16,14 +16,15 @@ _DIA = re.compile(r"^\d\.\d{1,2}$")
 
 
 def _diameter_words(words) -> list[tuple[str, float]]:
-    """직경 후보 = 2.0~8.0 소수 토큰 중 페이지에서 2회 이상 반복되는 값.
+    """직경 후보 = 2.8~8.0 소수 토큰 중 페이지에서 2회 이상 반복되는 값.
 
-    (직경은 길이 개수만큼 반복 등장, 일회성 숫자는 배제) → (값, y중심) 리스트."""
+    (직경은 길이 개수만큼 반복 등장, 일회성 숫자는 배제) → (값, y중심) 리스트.
+    하한 2.8: Hex 연결부 사이즈(1.2/2.1/2.5)를 임플란트 직경으로 오인하지 않게(임플란트는 ≥3.0)."""
     counts: dict[str, int] = defaultdict(int)
     cand: list[tuple[str, float]] = []
     for w in words:
         t = str(w[4]).strip()
-        if _DIA.match(t) and 2.0 <= float(t) <= 8.0:
+        if _DIA.match(t) and 2.8 <= float(t) <= 8.0:
             counts[t] += 1
             cand.append((t, (float(w[1]) + float(w[3])) / 2))
     return [(t, yc) for (t, yc) in cand if counts[t] >= 2]

@@ -14,6 +14,7 @@ from .mark import mark_page
 from .mapper import map_specs
 from .partnum import parse_length
 from .geom import diameter_for_boxes
+from .partnum_geom import codes_for_boxes
 from .fiftyone_writer import register_prelabeled
 
 # needs_review(사람 검수 필요) 판정용 VLM 신뢰도 바 — 검출 임계값(conf_min)과 분리한 고정값.
@@ -50,6 +51,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
         marked = mark_page(page.image, boxes)
         specs = map_specs(marked, page.image, boxes, brand, page.text)
         geom_dias = diameter_for_boxes(page.words, boxes)   # 좌표 기반 직경(없으면 None)
+        code_lists = codes_for_boxes(page.words, boxes)     # 좌표 기반 주문코드(없으면 [])
         recs: list[dict] = []
         seen: set[str] = set()
         for i, b in enumerate(boxes):
@@ -65,10 +67,19 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             # 직경: 기하(좌표) 우선 — 8B 가 못하는 렌더↔직경 위치매칭을 결정적으로. 없으면 VLM.
             diameter = geom_d or (sp.diameter if sp else None)
             diameter_src = "geom" if geom_d else ("vlm" if (sp and sp.diameter) else None)
-            # 기하로 직경 잡히면 렌더=직경family 라 length 는 비운다(사람이 필요시 채움). 아니면 VLM/파싱.
-            length = (None if geom_d else
-                      (sp.length if sp and sp.length else
-                       parse_length(brand, sp.part_number if sp else None)))
+            # 주문코드: 텍스트 좌표추출 우선(정확) — 없으면 VLM. 컬럼(여러 코드)은 콤마로.
+            codes = code_lists[i] if i < len(code_lists) else []
+            part_number = ",".join(codes) if codes else (sp.part_number if sp else None)
+            part_number_src = "text" if codes else ("vlm" if (sp and sp.part_number) else None)
+            # length: 코드 1개면 그걸로 파싱, 여러 개(컬럼)면 모호→비움, 없으면 기존(기하 우선/VLM/파싱).
+            if len(codes) == 1:
+                length = parse_length(brand, codes[0])
+            elif codes:
+                length = None
+            else:
+                length = (None if geom_d else
+                          (sp.length if sp and sp.length else
+                           parse_length(brand, sp.part_number if sp else None)))
             conf = sp.confidence if sp else 0.0
             is_fixture = sp.is_fixture if sp else None
             # 검출은 안 버린다(사람이 FiftyOne 에서 발라냄). needs_review = 저신뢰·필드누락·비픽스처.
@@ -82,7 +93,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
                 "content_hash": chash, "path": storage.rel(dst),
                 "stage": "review", "status": "review",
                 "brand": brand, "model": model, "diameter": diameter, "length": length,
-                "part_number": sp.part_number if sp else None,
+                "part_number": part_number, "part_number_src": part_number_src,
                 "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
                 "is_fixture": is_fixture, "diameter_src": diameter_src,
                 "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",

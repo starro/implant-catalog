@@ -8,7 +8,7 @@ def test_detect_fixtures_parses_service_response(monkeypatch):
         def json(self): return {"boxes": [{"score": 0.52, "xyxy": [1, 2, 3, 4]}]}
 
     def fake_post(url, json=None, timeout=None):
-        assert json["prompt"] == "an implant fixture."   # 마침표 필수(리콜)
+        assert json["prompt"] == "a dental implant."   # 마침표 필수(리콜). 도식 썸네일까지 커버
         return Resp()
 
     monkeypatch.setattr(detect.httpx, "post", fake_post)
