@@ -73,6 +73,8 @@ docker exec -d vllm-shlee bash -lc 'python /engine/gdino_server.py > /tmp/gdino.
 - `reject` → `data/rejected/` 이동 + FiftyOne 에서 제거(재태깅 복구 불가).
 - `keep` + brand/series/model 완비 → training 승급.
 - saved view: 문서별 `doc-<id>`("이 문서만 보기") + `rejected`. `scripts.fiftyone_saved_views` 가 갱신.
+- **App 세션은 launch 시점 ds 스냅샷** — 이후 다른 프로세스가 만든 saved view 를 모른다.
+  serve 스크립트가 20초 주기 `ds.reload()` 로 재기동 없이 최신화(그래서 수집 직후 doc-N 이 안 걸리면 ~20초 기다리면 됨). 없으면 fiftyone-drheri 재시작이 유일한 해법이 된다.
 
 ## 시간 감각 (실측)
 
