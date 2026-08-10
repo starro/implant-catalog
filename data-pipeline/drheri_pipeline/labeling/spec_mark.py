@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
 
@@ -16,6 +17,10 @@ import httpx
 from .mark import mark_page
 
 _URL = "http://127.0.0.1:8000/v1/chat/completions"
+
+# 페이지 안에서 박스별 콜을 동시에 돌리는 수(콜이 I/O 대기라 스레드로 효과). runner 의 페이지
+# 병렬(4)과 곱해져 총 동시 VLM 요청 ≈ 4×이 값 — 공유 GPU 부하 고려한 보수값.
+SPEC_WORKERS = 3
 
 _SYS = ("You read a dental implant catalog page. Exactly ONE implant render is marked with a red "
         "numbered box (0). Judge and read ONLY that marked implant, using the spec table row or "
@@ -105,14 +110,17 @@ def _call(marked, brand, url, model_name) -> MarkSpec:
 
 
 def spec_for_boxes(image, boxes, brand, *, url: str = _URL,
-                   model_name: str = "qwen3vl") -> list[MarkSpec]:
-    """각 박스를 '그 박스만 마크한 풀페이지'로 VLM 에 물어 스펙을 받는다(박스 순서대로).
+                   model_name: str = "qwen3vl", workers: int = SPEC_WORKERS) -> list[MarkSpec]:
+    """각 박스를 '그 박스만 마크한 풀페이지'로 VLM 에 물어 스펙을 받는다(입력 박스 순서 보존).
 
+    박스별 콜을 workers 개까지 동시에 돌려 페이지 처리를 단축한다(콜이 I/O 대기라 스레드로 효과).
     콜 실패는 빈 스펙(None)으로 격리해 한 박스 실패가 페이지를 멈추지 않게 한다."""
-    out: list[MarkSpec] = []
-    for b in boxes:
+    def one(b) -> MarkSpec:
         try:
-            out.append(_call(mark_page(image, [b]), brand, url, model_name))
+            return _call(mark_page(image, [b]), brand, url, model_name)
         except Exception:   # noqa: BLE001
-            out.append(MarkSpec(None, None, None, None, None, 0.0))
-    return out
+            return MarkSpec(None, None, None, None, None, 0.0)
+    if workers <= 1 or len(boxes) <= 1:
+        return [one(b) for b in boxes]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(one, boxes))   # map 은 입력 순서를 보존한다
