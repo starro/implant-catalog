@@ -287,8 +287,12 @@ def run_sync() -> dict:
             cx.execute("UPDATE sync_log SET note=? WHERE id=?", (note, log_id))
 
     # ---- saved view 자동 갱신 (실패해도 검수결과 반영 자체는 성공으로 취급) ----
-    from scripts.fiftyone_saved_views import sync_views_safely
-    saved_views = sync_views_safely()
+    # import 까지 가드 안에 둔다 — 모듈 부재/오류가 검수결과 반영 전체를 500 으로 죽이면 안 된다.
+    try:
+        from scripts.fiftyone_saved_views import sync_views_safely
+        saved_views = sync_views_safely()
+    except Exception as e:  # noqa: BLE001
+        saved_views = {"ok": False, "detail": f"{e.__class__.__name__}: {e}"}
 
     return {"kept": kept, "rejected": rejected, "promoted": promoted, "note": note,
             "move_failed": move_failed, "fiftyone_failed": fiftyone_failed,
