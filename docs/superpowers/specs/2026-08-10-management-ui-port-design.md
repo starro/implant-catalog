@@ -44,6 +44,7 @@
 | **크롭 이동** | 런별 tmp `/engine/run_<id>` → `docker cp` 호스트 병합 → **즉시 `rm -rf` 컨테이너 tmp** | 고아 데이터 0. 컨테이너 fs 누적 방지 |
 | **데이터** | 호스트 영구 `DATA_ROOT=/home/sh_lee/drheri-data`, content_hash 병합·중복제거 | 반복수집해도 안 부풂 |
 | **용어** | 한국어("퍼널"→**단계별 현황**, 단계: 검출/검수대기/학습/버림) | 한국 사용자 가독성 |
+| **엔진 전원** | **UI에서 명시적 켜기/끄기**(자동 아님). 켜기=`docker start`+GDINO+웜업, 끄기=`docker stop`(~44GB 반납) | 수집 안 할 땐 GPU를 metass 학습에 양보. 검수(FiftyOne)는 엔진 불필요 |
 
 ## 4. 아키텍처 / 실행 흐름
 
@@ -125,6 +126,19 @@ GPU 작업만 컨테이너, 나머지(등록·기록·모니터·정리)는 호�
 - **systemd 서비스 `drheri-ui`**(FiftyOne `fiftyone-drheri` 와 동형): `uvicorn drheri_pipeline.ui.app:app --host 0.0.0.0 --port 3000`. IP 접속.
 - 1회 셋업: `sudo usermod -aG docker sh_lee`(무중단, exec sudo 제거). 컨테이너 재생성 없음.
 - `DATA_ROOT=/home/sh_lee/drheri-data`(호스트 영구), FiftyOne 서비스와 동일 경로.
+
+## 11.5 엔진 전원 제어 (on-demand, 명시적)
+
+수집 안 할 땐 엔진(vLLM 40GB + GDINO 4GB ≈ 44GB)을 내려 GPU를 metass 학습에 양보한다.
+자동 up/down 아님 — **사용자가 UI에서 명시적으로 켜고 끈다**(오판/thrash 방지).
+
+- **상태 3단계**: `down`(컨테이너 정지) / `starting`(컨테이너 실행중이나 vLLM/GDINO 웜업 미완) / `ready`(둘 다 헬시).
+  판정: `docker inspect` 실행여부 + vLLM `:8000/v1/models` 200 + GDINO `:8100`(컨테이너 내부 curl).
+- **켜기**(`up`): 컨테이너 내려있으면 `docker start` + GDINO 서비스 `docker exec -d`(컨테이너와 함께 죽으므로 매번 재기동). 즉시 반환, 웜업은 백그라운드(~1–2분, 모델 캐시). UI가 상태 폴링해 `ready` 표시.
+- **끄기**(`down`): `docker stop vllm-shlee` → GPU 반납. metass 무영향(우리 컨테이너만).
+- **수집 가드**: `collect` 은 `status()=='ready'` 아니면 거부("엔진을 먼저 켜세요"). 수집 실행 버튼은 준비됨일 때만 활성.
+- API: `GET /api/engine/status`, `POST /api/engine/up`, `POST /api/engine/down`.
+- UI: 헤더/설정에 엔진 상태 배지(내림/켜는중/준비됨) + 켜기/끄기 버튼.
 
 ## 11. 승격지점 (지금 안 함)
 

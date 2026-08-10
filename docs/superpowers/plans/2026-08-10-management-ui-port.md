@@ -855,7 +855,7 @@ sudo systemd-run --uid=sh_lee --gid=sh_lee \
 
 - [ ] **Step 4: BEGO end-to-end 스모크**
 
-브라우저(LAN) `http://172.30.1.6:3000` → 소스 등록(BEGO, BEGO-2018.pdf URL 또는 업로드) → "수집 실행"(pages 18) → 진행 후 단계별 현황에 검출 5 반영 → "FiftyOne 에서 보기" 로 크롭 확인.
+브라우저(LAN) `http://172.30.1.6:3000` → **엔진 켜기 → 배지 "준비됨" 확인**(웜업 대기) → 소스 등록(BEGO, BEGO-2018.pdf URL 또는 업로드) → "수집 실행"(pages 18) → 진행 후 단계별 현황에 검출 5 반영 → "FiftyOne 에서 보기" 로 크롭 확인 → **엔진 끄기 → GPU 반납 확인**(`nvidia-smi` 에 vLLM 사라짐).
 검증(호스트): `run` 상태 SUCCESS, `/home/sh_lee/drheri-data/review/BEGO/catalog/*.png` 5장, 컨테이너 `/engine/run_<id>` 삭제됨(`docker exec vllm-shlee ls /engine | grep run_ || echo clean`).
 
 - [ ] **Step 5: 문서화 + 커밋**
@@ -864,6 +864,303 @@ sudo systemd-run --uid=sh_lee --gid=sh_lee \
 ```bash
 git add docs/DGX_UI_DEPLOY.md
 git commit -m "docs: DGX 관리 UI 호스트 배치 절차 + BEGO 스모크"
+```
+
+---
+
+## Task 10: engine — 전원 제어 모듈 (up/down/status)
+
+vllm-shlee 컨테이너(vLLM+GDINO)를 켜고/끄고 상태 조회. 수집 안 할 땐 내려 GPU를 metass 에 양보.
+
+**Files:**
+- Create: `drheri_pipeline/ui/engine.py`
+- Test: `tests/test_engine_ctl.py`
+
+**Interfaces:**
+- Produces: `status() -> str`(`"down"|"starting"|"ready"`), `up() -> None`, `down() -> None`. 컨테이너명 `runner_exec.CONTAINER` 재사용.
+
+- [ ] **Step 1: Write the failing test** (subprocess/httpx 목)
+
+`tests/test_engine_ctl.py`:
+```python
+from drheri_pipeline.ui import engine
+
+
+class _R:
+    def __init__(self, out): self.stdout = out; self.returncode = 0
+
+
+def test_status_down_when_container_stopped(monkeypatch):
+    monkeypatch.setattr(engine.subprocess, "run", lambda *a, **k: _R("false\n"))
+    assert engine.status() == "down"
+
+
+def test_status_ready_when_all_healthy(monkeypatch):
+    def fake_run(cmd, **k):
+        if cmd[:3] == ["docker", "inspect"]:  # running?
+            return _R("true\n")
+        return _R("200")                      # gdino health (container curl)
+    monkeypatch.setattr(engine.subprocess, "run", fake_run)
+    monkeypatch.setattr(engine, "_vllm_ok", lambda: True)
+    assert engine.status() == "ready"
+
+
+def test_status_starting_when_vllm_not_ready(monkeypatch):
+    monkeypatch.setattr(engine.subprocess, "run", lambda *a, **k: _R("true\n"))
+    monkeypatch.setattr(engine, "_vllm_ok", lambda: False)
+    assert engine.status() == "starting"
+
+
+def test_up_starts_container_and_gdino(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(engine, "_running", lambda: False)
+    monkeypatch.setattr(engine.subprocess, "run", lambda cmd, **k: cmds.append(cmd) or _R(""))
+    engine.up()
+    assert any(c[:2] == ["docker", "start"] for c in cmds)
+    assert any("gdino_server.py" in " ".join(c) for c in cmds)
+
+
+def test_down_stops_container(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(engine.subprocess, "run", lambda cmd, **k: cmds.append(cmd) or _R(""))
+    engine.down()
+    assert any(c[:2] == ["docker", "stop"] for c in cmds)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd data-pipeline && .venv/Scripts/python.exe -m pytest tests/test_engine_ctl.py -v`
+Expected: FAIL — `ModuleNotFoundError: ...ui.engine`
+
+- [ ] **Step 3: Implement engine.py**
+
+```python
+"""엔진 전원 제어 — vllm-shlee 컨테이너(vLLM+GDINO) 켜기/끄기/상태.
+UI에서 명시적 조작. 수집 안 할 땐 내려 GPU(~44GB)를 다른 계정 학습에 양보."""
+from __future__ import annotations
+
+import subprocess
+
+import httpx
+
+from drheri_pipeline.ui.runner_exec import CONTAINER
+
+_VLLM_URL = "http://127.0.0.1:8000/v1/models"
+
+
+def _running() -> bool:
+    r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER],
+                       capture_output=True, text=True)
+    return r.stdout.strip() == "true"
+
+
+def _vllm_ok() -> bool:
+    try:
+        return httpx.get(_VLLM_URL, timeout=3).status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _gdino_ok() -> bool:
+    r = subprocess.run(
+        ["docker", "exec", CONTAINER, "curl", "-s", "-o", "/dev/null",
+         "-w", "%{http_code}", "http://127.0.0.1:8100/"], capture_output=True, text=True)
+    return r.stdout.strip() in ("200", "404")     # 404 = 서버 살아있음(GET / 라우트 없음)
+
+
+def status() -> str:
+    if not _running():
+        return "down"
+    return "ready" if (_vllm_ok() and _gdino_ok()) else "starting"
+
+
+def up() -> None:
+    """컨테이너 start + GDINO 서비스 기동. 즉시 반환(웜업은 백그라운드). 이미 떠 있어도 무해."""
+    if not _running():
+        subprocess.run(["docker", "start", CONTAINER], check=True)
+    subprocess.run(["docker", "exec", "-d", CONTAINER, "bash", "-lc",
+                    "python /engine/gdino_server.py > /tmp/gdino.log 2>&1"], check=False)
+
+
+def down() -> None:
+    subprocess.run(["docker", "stop", CONTAINER], check=False)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd data-pipeline && .venv/Scripts/python.exe -m pytest tests/test_engine_ctl.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add drheri_pipeline/ui/engine.py tests/test_engine_ctl.py
+git commit -m "feat(ui): 엔진 전원 제어 모듈(up/down/status)"
+```
+
+---
+
+## Task 11: engine API + collect 가드
+
+엔진 상태/켜기/끄기 엔드포인트 + app 등록 + collect 이 `ready` 아니면 거부. (Task 6 이후 진행 — 같은 runs.py 수정)
+
+**Files:**
+- Create: `drheri_pipeline/ui/api/engine.py`
+- Modify: `drheri_pipeline/ui/app.py`(routes 에 engine 추가), `drheri_pipeline/ui/api/runs.py`(collect 가드)
+- Test: `tests/test_api_engine.py`
+
+**Interfaces:**
+- Consumes: `ui.engine`.
+- Produces: `GET /api/engine/status`, `POST /api/engine/up`, `POST /api/engine/down`. collect 은 `engine.status()!='ready'` 면 409.
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/test_api_engine.py`:
+```python
+from starlette.testclient import TestClient
+
+
+def test_engine_status_endpoint(tmp_path, monkeypatch):
+    from drheri_pipeline import storage
+    monkeypatch.setattr(storage, "DATA_ROOT", tmp_path)
+    from drheri_pipeline.ui.api import engine as api_engine
+    monkeypatch.setattr(api_engine.engine, "status", lambda: "ready")
+    from drheri_pipeline.ui.app import create_app
+    c = TestClient(create_app())
+    r = c.get("/api/engine/status")
+    assert r.status_code == 200 and r.json()["data"]["status"] == "ready"
+
+
+def test_collect_rejected_when_engine_not_ready(tmp_path, monkeypatch):
+    from drheri_pipeline import storage
+    monkeypatch.setattr(storage, "DATA_ROOT", tmp_path)
+    from drheri_pipeline.db import conn, writes
+    conn.migrate()
+    with conn.session() as cx:
+        d = writes.create_document(cx, brand_raw="BEGO", name="c", url="http://x/a.pdf",
+                                   source_type="catalog_vlm", default_conf=0.3, default_dpi=200,
+                                   default_pages="", default_series="_unknown", memo="")
+    from drheri_pipeline.ui.api import runs
+    monkeypatch.setattr(runs.engine, "status", lambda: "down")
+    from drheri_pipeline.ui.app import create_app
+    c = TestClient(create_app())
+    r = c.post(f"/api/sources/{d}/collect", json={})
+    assert r.status_code == 409
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd data-pipeline && .venv/Scripts/python.exe -m pytest tests/test_api_engine.py -v`
+Expected: FAIL — engine api 없음 / collect 가드 없음
+
+- [ ] **Step 3: Implement engine API + wire + guard**
+
+`ui/api/engine.py`:
+```python
+"""엔진 전원 제어 API."""
+from __future__ import annotations
+
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import Request
+from starlette.routing import Route
+
+from drheri_pipeline.ui import engine
+from drheri_pipeline.ui.envelope import ok
+
+
+async def engine_status(request: Request):
+    return ok({"status": await run_in_threadpool(engine.status)})
+
+
+async def engine_up(request: Request):
+    await run_in_threadpool(engine.up)
+    return ok({"status": await run_in_threadpool(engine.status)})
+
+
+async def engine_down(request: Request):
+    await run_in_threadpool(engine.down)
+    return ok({"status": "down"})
+
+
+routes = [
+    Route("/api/engine/status", engine_status, methods=["GET"]),
+    Route("/api/engine/up", engine_up, methods=["POST"]),
+    Route("/api/engine/down", engine_down, methods=["POST"]),
+]
+```
+`ui/app.py`: import 에 `engine as engine_api` 추가하고 `create_app` 의 routes 를 `[*sources.routes, *runs.routes, *ops.routes, *uploads.routes, *engine_api.routes]` 로.
+`ui/api/runs.py` `collect` 상단(문서 조회 후, run 생성 전)에 가드 추가:
+```python
+    from drheri_pipeline.ui import engine
+    if await run_in_threadpool(engine.status) != "ready":
+        raise ApiError("engine_not_ready", "엔진을 먼저 켜고 준비될 때까지 기다리세요", status=409)
+```
+(파일 상단에 `from drheri_pipeline.ui import engine` import; 테스트가 `runs.engine.status` 를 목킹.)
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd data-pipeline && .venv/Scripts/python.exe -m pytest tests/test_api_engine.py tests/test_api_runs.py -v`
+Expected: PASS (기존 collect 테스트는 engine.status 를 'ready' 로 목킹하도록 함께 갱신)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add drheri_pipeline/ui/api/engine.py drheri_pipeline/ui/app.py drheri_pipeline/ui/api/runs.py tests/test_api_engine.py tests/test_api_runs.py
+git commit -m "feat(ui): 엔진 전원 API + collect 준비됨 가드"
+```
+
+---
+
+## Task 12: SPA — 엔진 전원 위젯
+
+헤더에 엔진 상태 배지(내림/켜는중/준비됨) + 켜기/끄기 버튼. 준비됨 아니면 "수집 실행" 비활성.
+
+**Files:**
+- Create: `web/src/components/EngineControl.svelte`
+- Modify: `web/src/App.svelte`(헤더에 배치), `web/src/routes/SourceDetail.svelte`(수집 버튼 disabled 조건)
+- Test: `web/src/components/engine_labels.test.js`
+
+**Interfaces:**
+- Consumes: `GET /api/engine/status`, `POST /api/engine/{up,down}`.
+- Produces: 상태 폴링(2s) → 배지. 켜기/끄기 버튼. `ready` 아니면 수집 비활성.
+
+- [ ] **Step 1: Write the failing test**
+
+`web/src/components/engine_labels.test.js`:
+```javascript
+import { expect, test } from 'vitest';
+import { ENGINE_LABELS } from './engine_labels.js';
+
+test('엔진 상태 한국어 라벨', () => {
+  expect(ENGINE_LABELS.down).toBe('내림');
+  expect(ENGINE_LABELS.starting).toBe('켜는중');
+  expect(ENGINE_LABELS.ready).toBe('준비됨');
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd data-pipeline/web && npm test`
+Expected: FAIL — `engine_labels.js` 없음
+
+- [ ] **Step 3: Implement widget**
+
+`web/src/components/engine_labels.js`:
+```javascript
+export const ENGINE_LABELS = { down: '내림', starting: '켜는중', ready: '준비됨' };
+```
+`EngineControl.svelte`: `onMount` 로 `/api/engine/status` 2초 폴링 → 배지(ENGINE_LABELS). "엔진 켜기"(POST /api/engine/up)·"엔진 끄기"(POST /api/engine/down) 버튼. `App.svelte` 헤더에 `<EngineControl/>` 배치. `SourceDetail.svelte` 의 "수집 실행" 버튼에 `disabled={engineStatus !== 'ready'}` (전역 store 로 상태 공유, 또는 컴포넌트 prop). 준비 안 됐을 때 안내 문구.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd data-pipeline/web && npm test` (+ `npm run build` 성공)
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src/components/EngineControl.svelte web/src/components/engine_labels.js web/src/components/engine_labels.test.js web/src/App.svelte web/src/routes/SourceDetail.svelte
+git commit -m "feat(web): 엔진 전원 위젯(상태 배지 + 켜기/끄기) + 수집 가드"
 ```
 
 ---
@@ -879,6 +1176,9 @@ git commit -m "docs: DGX 관리 UI 호스트 배치 절차 + BEGO 스모크"
 - §8 에러/정리(고아0·1런큐·타임아웃) → Task 5(finally rm·전역락). **타임아웃 상한은 미구현** — 갭: run_engine 에 `asyncio.wait_for` 상한을 후속 추가(현재 무제한). 명시.
 - §9 테스트 → 각 태스크 TDD. 통합 → Task 9 스모크.
 - §10 배치 → Task 9. §11 승격지점 → 문서 유지.
+- **§11.5 엔진 전원 제어** → Task 10(engine.py up/down/status)·Task 11(엔진 API + collect 준비됨 가드)·Task 12(SPA 위젯 배지+버튼+수집 비활성). 스모크에 엔진 켜기/끄기 포함(Task 9 Step4).
+
+**실행 순서(SDD):** 1→2→3→4→5→6→7→**10→11**→8→**12**→9. (10·11은 runs.py 가드가 6의 재배선 위에 얹히므로 6 이후. 12는 8의 SPA 위에.)
 
 **2. Placeholder scan:** "TODO/TBD" 없음. 업로드 주입·타임아웃 상한은 "후속/갭"으로 명시(플레이스홀더 아님, 범위 밖 결정).
 
