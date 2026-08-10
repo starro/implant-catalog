@@ -8,7 +8,7 @@
 
   onMount(() => {
     refreshEngineStatus();
-    const timer = setInterval(refreshEngineStatus, 2000);
+    const timer = setInterval(refreshEngineStatus, 5000);   // 서버측 status 캐시(4s)와 맞춤
     return () => clearInterval(timer);
   });
 

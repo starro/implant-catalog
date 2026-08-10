@@ -8,6 +8,7 @@ transformers 4.57 규약: post_process_grounded_object_detection(threshold=, tex
 """
 import base64
 import threading
+import time
 from io import BytesIO
 
 import torch
@@ -75,15 +76,32 @@ def detect(body: dict):
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
 
 
+_HEALTH_TTL = 30.0                 # 실추론 결과 캐시 — 잦은 폴링이 매번 GPU 추론을 돌리지 않게
+_health = {"t": -1e9, "ok": False}
+_health_lock = threading.Lock()
+
+
 @app.get("/health")
 def health():
-    """tiny 실추론으로 conv 경로까지 확인. 죽었으면 자가복구 시도. 복구 실패만 503."""
+    """tiny 실추론으로 conv 경로까지 확인 — 단, 30초 캐시 + 동시검사 1건으로 제한한다.
+
+    UI 가 2초마다 상태를 폴링하는데 매번 GPU 실추론을 돌리면 검출 서버가 마비된다(폴링이 쌓여
+    서로 GPU 를 다툼). 캐시가 유효하면 즉시 반환, 만료 시 한 스레드만 실검사(나머진 직전 결과)."""
+    now = time.time()
+    if _health["ok"] and (now - _health["t"]) < _HEALTH_TTL:
+        return {"ok": True, "cached": True}
+    if not _health_lock.acquire(blocking=False):
+        return {"ok": _health["ok"], "cached": True, "inflight": True}   # 실검사 진행 중 — 직전 결과
     try:
         _detect_with_recovery(Image.new("RGB", (96, 96), (180, 180, 180)),
                               "an implant fixture.", 0.3)
+        _health["t"] = now; _health["ok"] = True
         return {"ok": True}
     except Exception as e:  # noqa: BLE001
+        _health["t"] = now; _health["ok"] = False
         return JSONResponse({"ok": False, "detail": f"{type(e).__name__}: {e}"}, status_code=503)
+    finally:
+        _health_lock.release()
 
 
 if __name__ == "__main__":

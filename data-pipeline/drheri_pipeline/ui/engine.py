@@ -3,12 +3,16 @@ UI에서 명시적 조작. 수집 안 할 땐 내려 GPU(~44GB)를 다른 계정
 from __future__ import annotations
 
 import subprocess
+import time
 
 import httpx
 
 from drheri_pipeline.ui.runner_exec import CONTAINER
 
 _VLLM_URL = "http://127.0.0.1:8000/v1/models"
+
+_STATUS_TTL = 4.0                          # status() 결과 캐시 — UI 가 2초마다(탭마다) 폴링해도
+_status_cache = {"t": -1e9, "val": "down"}  # docker exec/추론을 매번 돌리지 않게
 
 
 def _running() -> bool:
@@ -29,15 +33,26 @@ def _gdino_ok() -> bool:
     # 고장이면 서버가 자가복구(모델 재로드)를 시도하므로 재로드 시간(~15s)까지 대기.
     r = subprocess.run(
         ["docker", "exec", CONTAINER, "curl", "-s", "-o", "/dev/null",
-         "-w", "%{http_code}", "--max-time", "40", "http://127.0.0.1:8100/health"],
+         "-w", "%{http_code}", "--max-time", "15", "http://127.0.0.1:8100/health"],
         capture_output=True, text=True)
     return r.stdout.strip() == "200"
 
 
-def status() -> str:
+def _invalidate() -> None:
+    _status_cache["t"] = -1e9
+
+
+def status(force: bool = False) -> str:
+    now = time.monotonic()
+    if not force and (now - _status_cache["t"]) < _STATUS_TTL:
+        return _status_cache["val"]                  # 캐시 유효 — docker exec/추론 생략
     if not _running():
-        return "down"
-    return "ready" if (_vllm_ok() and _gdino_ok()) else "starting"
+        val = "down"
+    else:
+        val = "ready" if (_vllm_ok() and _gdino_ok()) else "starting"
+    _status_cache["t"] = now
+    _status_cache["val"] = val
+    return val
 
 
 def up() -> None:
@@ -46,7 +61,9 @@ def up() -> None:
         subprocess.run(["docker", "start", CONTAINER], check=True)
     subprocess.run(["docker", "exec", "-d", CONTAINER, "bash", "-lc",
                     "python /engine/gdino_server.py > /tmp/gdino.log 2>&1"], check=False)
+    _invalidate()                                    # 방금 켰으니 다음 status 는 새로 확인
 
 
 def down() -> None:
     subprocess.run(["docker", "stop", CONTAINER], check=False)
+    _invalidate()
