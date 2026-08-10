@@ -16,6 +16,7 @@ def test_collect_starts_engine(tmp_path, monkeypatch):
         started.update(doc_id=doc_id, run_id=run_id, pdf=pdf, brand=brand)
     from drheri_pipeline.ui.api import runs
     monkeypatch.setattr(runs.runner_exec, "run_engine", fake_run_engine)
+    monkeypatch.setattr(runs.engine, "status", lambda: "ready")
     from drheri_pipeline.ui.app import create_app
     client = TestClient(create_app())
     r = client.post(f"/api/sources/{d}/collect", json={})

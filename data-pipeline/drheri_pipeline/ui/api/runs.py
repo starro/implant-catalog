@@ -9,7 +9,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 
 from drheri_pipeline.db import conn, queries, writes
-from drheri_pipeline.ui import runner_exec
+from drheri_pipeline.ui import engine, runner_exec
 from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 from drheri_pipeline.ui.events import broadcaster
 
@@ -17,6 +17,9 @@ from drheri_pipeline.ui.events import broadcaster
 async def collect(request: Request):
     doc_id = request.path_params["doc_id"]
     body = await read_json(request, require_dict=False)
+
+    if await run_in_threadpool(engine.status) != "ready":
+        raise ApiError("engine_not_ready", "엔진을 먼저 켜고 준비될 때까지 기다리세요", status=409)
 
     def _prepare():
         with conn.session() as cx:
