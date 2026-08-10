@@ -14,7 +14,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from drheri_pipeline.db import conn, writes
-from drheri_pipeline.ui.api import ops, runs, sources, uploads
+from drheri_pipeline.ui.api import nas, ops, runs, sources, uploads
 from drheri_pipeline.ui.api import engine as engine_api
 from drheri_pipeline.ui.envelope import ApiError, api_error_handler, fail, unhandled_error_handler
 
@@ -37,7 +37,8 @@ def create_app() -> Starlette:
     # 기동 시 한 번, 그런 런은 있을 수 없는 상태이므로 FAILURE 로 정리한다.
     with conn.session() as cx:
         writes.reconcile_interrupted_runs(cx)
-    routes = [*sources.routes, *runs.routes, *ops.routes, *uploads.routes, *engine_api.routes]
+    routes = [*sources.routes, *runs.routes, *ops.routes, *uploads.routes,
+              *engine_api.routes, *nas.routes]
     if (DIST / "assets").exists():
         routes.append(Mount("/assets", app=StaticFiles(directory=DIST / "assets")))
     routes.append(Route("/", spa, methods=["GET"]))

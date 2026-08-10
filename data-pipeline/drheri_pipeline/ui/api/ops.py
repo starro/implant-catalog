@@ -19,10 +19,11 @@ from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 from drheri_pipeline.ui.events import broadcaster
 
 SETTINGS_KEYS = ("DEFAULT_CONF", "DEFAULT_DPI", "DATA_ROOT",
-                 "FIFTYONE_URL", "FIFTYONE_SERVICE")
+                 "FIFTYONE_URL", "FIFTYONE_SERVICE", "NAS_CATALOG_ROOT")
 DEFAULTS = {"DEFAULT_CONF": "0.35", "DEFAULT_DPI": "200",
             "FIFTYONE_URL": "http://172.30.1.6:5151",
-            "FIFTYONE_SERVICE": "fiftyone-drheri"}
+            "FIFTYONE_SERVICE": "fiftyone-drheri",
+            "NAS_CATALOG_ROOT": "/mnt/nas/03. Dr.HERi/02. 카탈로그"}
 
 _sync_running = False
 

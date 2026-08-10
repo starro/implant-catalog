@@ -13,6 +13,47 @@
   let uploading = $state(false);
   let dragover = $state(false);
 
+  // NAS 브라우저 — 호스트에 마운트된 카탈로그 루트(<브랜드>/<pdf>)를 탐색해 선택한다.
+  let nas = $state({ open: false, avail: true, path: '', dirs: [], files: [], loading: false });
+
+  function fmtSize(n) {
+    if (!n) return '';
+    const mb = n / (1024 * 1024);
+    return mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
+  }
+
+  async function nasBrowse(path = '') {
+    nas.loading = true;
+    try {
+      const r = await get('/api/nas/browse', { path });
+      nas.avail = r.available; nas.path = r.path; nas.dirs = r.dirs; nas.files = r.files;
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      nas.loading = false;
+    }
+  }
+
+  function nasToggle() {
+    nas.open = !nas.open;
+    if (nas.open && !nas.dirs.length && !nas.files.length) nasBrowse('');
+  }
+
+  function nasUp() {
+    const parts = nas.path.split('/').filter(Boolean);
+    parts.pop();
+    nasBrowse(parts.join('/'));
+  }
+
+  async function nasPick(file) {
+    form.url = file.abs;                              // 호스트 절대경로 — 수집 시 docker cp 주입
+    const brandSeg = nas.path.split('/').filter(Boolean)[0];   // 최상위 폴더 = 브랜드
+    if (brandSeg) form.brand = brandSeg;
+    if (!form.name.trim()) form.name = file.name;
+    await checkUrl();
+    toast('NAS 파일을 선택했습니다', 'success');
+  }
+
   async function checkUrl() {
     duplicate = null;
     if (!form.url.trim()) return;
@@ -110,6 +151,37 @@
       {/if}
     </div>
 
+    <div class="nashead">
+      <span class="label">또는 NAS 에서 선택 <span>(이미 NAS 에 있는 파일)</span></span>
+      <button type="button" class="naslink" onclick={nasToggle}>{nas.open ? '닫기' : 'NAS 열기'}</button>
+    </div>
+    {#if nas.open}
+      <div class="nas">
+        {#if !nas.avail}
+          <div class="muted">NAS 가 마운트되어 있지 않습니다 (/mnt/nas). 관리자에게 문의하세요.</div>
+        {:else}
+          <div class="crumb">
+            <button type="button" onclick={() => nasBrowse('')}>루트</button>
+            {#if nas.path}<span>/ {nas.path}</span>
+              <button type="button" onclick={nasUp}>↑ 상위</button>{/if}
+          </div>
+          {#if nas.loading}<div class="muted">불러오는 중…</div>{/if}
+          <ul class="naslist">
+            {#each nas.dirs as d (d.path)}
+              <li><button type="button" onclick={() => nasBrowse(d.path)}>📁 {d.name}</button></li>
+            {/each}
+            {#each nas.files as f (f.abs)}
+              <li><button type="button" class="pdf" onclick={() => nasPick(f)}>📄 {f.name}
+                <span class="muted">{fmtSize(f.size)}</span></button></li>
+            {/each}
+          </ul>
+          {#if !nas.loading && !nas.dirs.length && !nas.files.length}
+            <div class="muted">(비어 있음 · PDF 없음)</div>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+
     <div class="label">카탈로그 PDF 주소 또는 파일 드롭</div>
     <input bind:value={form.url} onblur={checkUrl} placeholder="https://…/catalog.pdf" />
     {#if duplicate}
@@ -156,4 +228,19 @@
   .warn { margin-top: 6px; padding: 6px 8px; font-size: 11px; border-radius: 4px;
           background: #fffbeb; border: 1px solid #fde68a; color: #b45309; }
   .actions { display: flex; gap: 6px; margin-top: 14px; }
+  .nashead { display: flex; align-items: center; justify-content: space-between; }
+  .naslink { font-size: 11px; color: var(--accent); background: none; border: none;
+             cursor: pointer; text-decoration: underline; padding: 0; }
+  .nas { margin-top: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  .crumb { display: flex; align-items: center; gap: 6px; font-size: 11px;
+           color: var(--muted); margin-bottom: 6px; }
+  .crumb button { font-size: 11px; background: none; border: none; color: var(--accent);
+                  cursor: pointer; padding: 0; text-decoration: underline; }
+  .naslist { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  .naslist li button { width: 100%; text-align: left; background: none; border: none;
+                       padding: 4px 6px; font-size: 12px; cursor: pointer; border-radius: 4px;
+                       color: var(--text); }
+  .naslist li button:hover { background: var(--pending); }
+  .naslist li button.pdf { color: var(--accent); }
+  .nas .muted { color: var(--muted); font-size: 11px; }
 </style>
