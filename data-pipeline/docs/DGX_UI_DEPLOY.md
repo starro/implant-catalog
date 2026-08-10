@@ -37,7 +37,7 @@ Dr.HERi 카탈로그 라벨링 시스템을 DGX(GB10, 172.30.1.6, 계정 `sh_lee
 
 원본 PDF는 NAS(SMB)에 있고 DGX 호스트에 **읽기전용 CIFS** 마운트한다.
 
-- 공유 `//172.30.1.8/NAS-METASS`, 마운트 `/mnt/nas` (ro), 계정 `nas-user01`(비번은 `/etc/cifs-nas-metass.cred`, root:600)
+- 공유 `//172.30.1.8/NAS-METASS`, 마운트 `/mnt/nas` (ro). **자격증명(계정·비번)은 `/etc/cifs-nas-metass.cred`** (root:600) — 저장소엔 두지 않음
 - 카탈로그 루트: `NAS_CATALOG_ROOT=/mnt/nas/03. Dr.HERi/02. 카탈로그/<브랜드>/*.pdf`
 - `/etc/fstab` 에 `nofail,_netdev` 항목 등록 → 재부팅 유지
 - 수집 흐름: UI 에서 NAS 파일 선택 → `url`=호스트 절대경로 → 수집 시 `_prepare_pdf` 가 `docker cp` 로 컨테이너 주입(업로드와 동일). 컨테이너엔 NAS 바인드 없음.
