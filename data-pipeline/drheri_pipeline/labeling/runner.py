@@ -35,6 +35,10 @@ JUDGE_MODE = "mark"
 # 신뢰 가능한 시리즈 출처(문서 등록 시 default_series 등) 확보 전까지 model 은 비운다(빈칸 > 틀린값).
 MODEL_FROM_HEADING = False
 
+# 크롭(=학습 이미지) 해상도. 검출·8B 는 렌더 DPI(보통 200)를 쓰고, 저장되는 크롭만 PDF 에서
+# 이 DPI 로 박스 영역만 재렌더한다(고화질 학습 이미지). 렌더 DPI 이하면 재렌더 안 하고 page.image 에서 자른다.
+CROP_DPI = 600
+
 
 @dataclass
 class RunSummary:
@@ -50,7 +54,30 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
+def _hires_cropper(page, crop_dpi):
+    """(cropper, closer) 반환. crop_dpi>렌더DPI 면 PDF 에서 박스영역만 고DPI 재렌더하는 함수를,
+    아니면 page.image 에서 자르는 함수를 준다. closer 는 열었던 doc 을 닫는다(없으면 no-op)."""
+    if not (crop_dpi and page.pdf_data and crop_dpi > (page.dpi or 200)):
+        return (lambda box: page.image.crop(box.xyxy)), (lambda: None)
+    try:
+        import fitz
+        from PIL import Image
+        doc = fitz.open(stream=page.pdf_data, filetype="pdf")
+        pg = doc[page.page_no - 1]
+        vlm_scale = (page.dpi or 200) / 72.0            # page.image 픽셀 → PDF 포인트
+        mat = fitz.Matrix(crop_dpi / 72.0, crop_dpi / 72.0)
+    except Exception:   # noqa: BLE001 — 재렌더 준비 실패 시 저해상 크롭으로 폴백
+        return (lambda box: page.image.crop(box.xyxy)), (lambda: None)
+
+    def crop(box):
+        x0, y0, x1, y1 = box.xyxy
+        rect = fitz.Rect(x0 / vlm_scale, y0 / vlm_scale, x1 / vlm_scale, y1 / vlm_scale)
+        pix = pg.get_pixmap(matrix=mat, clip=rect)
+        return Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert("RGB")
+    return crop, doc.close
+
+
+def _process_page(page, brand, pdf_url, conf_min, crop_dpi, log) -> list[dict]:
     """한 페이지 → 크롭 레코드 리스트 (검출 0개면 빈 리스트).
 
     단일 해상도: 검출·마크·VLM·크롭 모두 page.image 를 쓴다(좌표 환산 없음).
@@ -103,10 +130,16 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
                 # 시리즈=페이지 제목 추출은 마케팅 헤드라인 오염이 심해 기본 비활성(빈칸 > 틀린값).
                 page_model = model_from_heading(page.heading, brand) if MODEL_FROM_HEADING else None
                 models = [page_model] * n
+        # 크롭만 고DPI 로 미리 렌더(검출·8B 는 page.image 그대로). doc 은 렌더 직후 닫는다.
+        crop_fn, crop_close = _hires_cropper(page, crop_dpi)
+        try:
+            crops = [crop_fn(b) for b in boxes]
+        finally:
+            crop_close()
         recs: list[dict] = []
         seen: set[str] = set()
         for i, b in enumerate(boxes):
-            crop = page.image.crop(b.xyxy)
+            crop = crops[i]
             buf = BytesIO(); crop.save(buf, "PNG"); png = buf.getvalue()
             chash = storage.content_hash(png)
             if chash in seen:
@@ -150,7 +183,8 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
 
 
 def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
-                  conf_min: float = 0.6, max_workers: int = 4, log=print) -> RunSummary:
+                  conf_min: float = 0.6, crop_dpi: int = CROP_DPI, max_workers: int = 4,
+                  log=print) -> RunSummary:
     def _render_prog(r, t):
         storage.write_progress(r, t, 0, phase="render")   # 렌더 구간 진행("렌더링 X/N")
     pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log, on_progress=_render_prog))
@@ -160,7 +194,8 @@ def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
     done = 0
     storage.write_progress(0, total, 0)                 # 렌더 끝 — 검출 구간 시작(phase=process)
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, log), pages_list):
+        for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, crop_dpi, log),
+                           pages_list):
             done += 1
             if recs:
                 fixture_pages += 1

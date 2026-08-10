@@ -91,6 +91,30 @@ def test_mark_mode_fills_specs_from_vlm(tmp_path, monkeypatch):
     assert r["is_fixture"] is True
 
 
+def test_crop_dpi_renders_higher_res_crops(tmp_path, monkeypatch):
+    # 크롭(학습 이미지)만 고DPI 로 재렌더 — 검출·8B 는 렌더 DPI 그대로. 크롭 픽셀이 커야 한다.
+    from PIL import Image
+    monkeypatch.setattr(runner.storage, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m.jsonl")
+    pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=1)
+    monkeypatch.setattr(runner, "detect_fixtures", lambda v, **k: [Box(0.5, (40, 40, 240, 240))])
+    monkeypatch.setattr(runner, "spec_for_boxes", lambda *a, **k: [
+        MarkSpec(True, "M", "4.0", "10", None, 0.9)])
+    saved = {"recs": None}
+    monkeypatch.setattr(runner, "register_prelabeled",
+                        lambda recs, log=print, **k: saved.__setitem__("recs", recs) or len(recs))
+
+    # 저해상(크롭=렌더DPI): crop_dpi<=dpi
+    runner.label_catalog(str(pdf), "X", dpi=200, crop_dpi=200, max_workers=1)
+    lo = Image.open(tmp_path / saved["recs"][0]["path"]).size
+
+    monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m2.jsonl")
+    runner.label_catalog(str(pdf), "X", dpi=200, crop_dpi=600, max_workers=1)
+    hi = Image.open(tmp_path / saved["recs"][0]["path"]).size
+
+    assert hi[0] > lo[0] * 2 and hi[1] > lo[1] * 2   # 600/200=3배 근처
+
+
 def test_som_mode_uses_map_specs(tmp_path, monkeypatch):
     # 되돌리기 스위치: JUDGE_MODE="som" 이면 예전 set-of-mark(map_specs)로 동작
     monkeypatch.setattr(runner, "JUDGE_MODE", "som")

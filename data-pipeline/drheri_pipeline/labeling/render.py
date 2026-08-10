@@ -15,6 +15,8 @@ class RenderedPage:
     text: str
     words: list = field(default_factory=list)   # (x0,y0,x1,y1,text) 픽셀좌표 — 기하 매칭용
     heading: str = ""   # 상단 최대폰트 제목(모델/시리즈 추출용). 큰 제목이 여러 개면 "" (모호)
+    pdf_data: bytes = b""   # 원본 PDF 바이트(공유 참조) — 크롭을 고DPI 로 재렌더할 때 사용
+    dpi: int = 200          # image/words 의 렌더 DPI — 크롭 좌표(픽셀→포인트) 환산 기준
 
 
 def _page_heading(page) -> str:
@@ -76,6 +78,6 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
             if on_progress:
                 on_progress(rendered, total)
             yield RenderedPage(page_no=i + 1, image=image, text=text, words=words,
-                               heading=heading)
+                               heading=heading, pdf_data=data, dpi=dpi)
     finally:
         doc.close()
