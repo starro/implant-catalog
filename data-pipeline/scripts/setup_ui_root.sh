@@ -22,7 +22,7 @@ echo "=== 3) UI systemd 유닛 ==="
 cat > /etc/systemd/system/drheri-ui.service <<EOF
 [Unit]
 Description=Dr.HERi 데이터 파이프라인 관리 UI
-After=network-online.target drheri-dagster.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -35,9 +35,6 @@ Environment=DATA_ROOT=$H/data
 Environment=FIFTYONE_DATABASE_VALIDATION=false
 Environment=HOOK_TOKEN=drheri-dev
 Environment=UI_BASE_URL=http://127.0.0.1:3000
-Environment=DAGSTER_HOST=localhost
-Environment=DAGSTER_UI_PORT=3333
-Environment=DAGSTER_URL=http://58.229.105.3:3333
 Environment=FIFTYONE_URL=http://58.229.105.3:5151
 Environment=FIFTYONE_SERVICE=drheri-fiftyone
 ExecStart=$PY -m uvicorn drheri_pipeline.ui.app:app --host 0.0.0.0 --port 3000

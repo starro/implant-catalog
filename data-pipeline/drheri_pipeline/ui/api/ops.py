@@ -18,10 +18,9 @@ from drheri_pipeline.services import export, fiftyone_ctl, sync
 from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 from drheri_pipeline.ui.events import broadcaster
 
-SETTINGS_KEYS = ("DEFAULT_CONF", "DEFAULT_DPI", "DATA_ROOT", "DAGSTER_URL",
+SETTINGS_KEYS = ("DEFAULT_CONF", "DEFAULT_DPI", "DATA_ROOT",
                  "FIFTYONE_URL", "FIFTYONE_SERVICE")
 DEFAULTS = {"DEFAULT_CONF": "0.35", "DEFAULT_DPI": "200",
-            "DAGSTER_URL": "http://58.229.105.3:3333",
             "FIFTYONE_URL": "http://58.229.105.3:5151",
             "FIFTYONE_SERVICE": "drheri-fiftyone"}
 

@@ -1,6 +1,6 @@
-# 파이프라인 서버 종료 — FiftyOne(:5151)+mongod, Dagster(:3333).
+# 파이프라인 서버 종료 — FiftyOne(:5151)+mongod.
 # 포트 지정: .\scripts\stop.ps1 5151
-param([int[]]$Ports = @(5151, 3333))
+param([int[]]$Ports = @(5151))
 
 foreach ($port in $Ports) {
     $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
