@@ -21,8 +21,8 @@ from drheri_pipeline.ui.events import broadcaster
 SETTINGS_KEYS = ("DEFAULT_CONF", "DEFAULT_DPI", "DATA_ROOT",
                  "FIFTYONE_URL", "FIFTYONE_SERVICE")
 DEFAULTS = {"DEFAULT_CONF": "0.35", "DEFAULT_DPI": "200",
-            "FIFTYONE_URL": "http://58.229.105.3:5151",
-            "FIFTYONE_SERVICE": "drheri-fiftyone"}
+            "FIFTYONE_URL": "http://172.30.1.6:5151",
+            "FIFTYONE_SERVICE": "fiftyone-drheri"}
 
 _sync_running = False
 
