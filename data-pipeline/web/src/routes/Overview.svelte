@@ -26,7 +26,7 @@
 
   <h3>최근 수집</h3>
   <table>
-    <thead><tr><th>일시</th><th>문서</th><th>상태</th><th>추출</th></tr></thead>
+    <thead><tr><th>일시</th><th>문서</th><th>상태</th><th>검출</th></tr></thead>
     <tbody>
       {#each data.recent_runs as r (r.id)}
         <tr>

@@ -10,7 +10,7 @@
 {:else}
   <table>
     <thead>
-      <tr><th>일시</th><th>설정</th><th>상태</th><th>추출</th></tr>
+      <tr><th>일시</th><th>설정</th><th>상태</th><th>검출</th></tr>
     </thead>
     <tbody>
       {#each runs as r (r.id)}

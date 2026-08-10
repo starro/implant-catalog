@@ -105,7 +105,7 @@
 
   async function reset() {
     const f = doc.funnel;
-    let msg = `이 문서의 수집 결과를 모두 지웁니다 (추출 ${f.extracted}장). `
+    let msg = `이 문서의 수집 결과를 모두 지웁니다 (검출 ${f.extracted}장). `
       + '문서·설정은 남아 바로 재수집할 수 있습니다.';
     if (f.training > 0) msg += `\n\n⚠️ 학습 승급된 ${f.training}장도 함께 삭제됩니다.`;
     if (!confirm(msg)) return;

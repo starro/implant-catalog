@@ -13,7 +13,7 @@
     <span class="label">문서 {group.documents.length}</span>
     <span class="bar"><FunnelBar funnel={group.funnel} showNumbers={false} height={6} /></span>
     <span class="label num">
-      추출 {num(group.funnel.extracted)} · 학습 {num(group.funnel.training)}
+      검출 {num(group.funnel.extracted)} · 학습 {num(group.funnel.training)}
       · 버림 {num(group.funnel.rejected)} · 대기 {num(group.funnel.pending)}
     </span>
   </button>
