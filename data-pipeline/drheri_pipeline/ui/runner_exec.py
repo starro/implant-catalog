@@ -100,7 +100,7 @@ def _finalize_success(run_id: int, doc_id: int, log) -> int:
     storage.MANIFEST.write_text(prior, encoding="utf-8")  # cp 가 덮은 것 되돌리고
     storage.append_manifest(records)                    # 이번 런 레코드 누적 append
     extracted = _record(records, doc_id, run_id)
-    register_prelabeled(records, log=log)
+    register_prelabeled(records, doc_id, log=log)     # 샘플에 document_id + doc-<id> saved view
     return extracted
 
 

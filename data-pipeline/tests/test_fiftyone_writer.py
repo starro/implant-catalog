@@ -27,6 +27,26 @@ def test_register_prelabeled_sets_fields_and_flag(tmp_path, monkeypatch):
     fo.delete_dataset(ds_name)
 
 
+def test_register_prelabeled_sets_document_id_and_view(tmp_path, monkeypatch):
+    monkeypatch.setattr(fiftyone_writer.storage, "DATA_ROOT", tmp_path)
+    img = tmp_path / "crop.png"
+    from PIL import Image; Image.new("RGB", (10, 10)).save(img)
+    ds_name = "drheri_test_docid"
+    monkeypatch.setattr(fiftyone_writer, "DATASET", ds_name)
+    if ds_name in fo.list_datasets():
+        fo.delete_dataset(ds_name)
+    rec = {"content_hash": "h1", "path": "crop.png", "brand": "BEGO", "model": "SC",
+           "diameter": "4.1", "length": None, "part_number": "58160",
+           "ai_confidence": 0.4, "evidence": "SC", "source_page": 18,
+           "bbox": [1, 2, 3, 4], "needs_review": False}
+    fiftyone_writer.register_prelabeled([rec], document_id=7)
+    ds = fo.load_dataset(ds_name)
+    assert next(iter(ds))["document_id"] == 7
+    assert "doc-7" in ds.list_saved_views()           # ?view=doc-7 딥링크가 이 뷰를 연다
+    assert len(ds.load_saved_view("doc-7")) == 1
+    fo.delete_dataset(ds_name)
+
+
 def test_register_prelabeled_dedups_within_same_batch(tmp_path, monkeypatch):
     monkeypatch.setattr(fiftyone_writer.storage, "DATA_ROOT", tmp_path)
     img = tmp_path / "crop.png"
