@@ -5,7 +5,6 @@
   const FIELDS = [
     ['DEFAULT_CONF', '기본 conf'],
     ['DEFAULT_DPI', '기본 dpi'],
-    ['DAGSTER_URL', 'Dagster 주소'],
     ['FIFTYONE_URL', 'FiftyOne 주소'],
     ['FIFTYONE_SERVICE', 'FiftyOne systemd 서비스명'],
   ];

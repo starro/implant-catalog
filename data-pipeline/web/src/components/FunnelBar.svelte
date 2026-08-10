@@ -1,10 +1,11 @@
 <script>
   import { funnelSegments, num } from '../lib/format.js';
+  import { STAGE_LABELS } from './funnel_labels.js';
 
   let { funnel, showNumbers = true, height = 8 } = $props();
   let segments = $derived(funnelSegments(funnel));
   let tooltip = $derived(
-    `미검수 ${funnel?.unreviewed ?? 0} · 라벨 미완 ${funnel?.label_incomplete ?? 0}`,
+    `단계별 현황 — 미검수 ${funnel?.unreviewed ?? 0} · 라벨 미완 ${funnel?.label_incomplete ?? 0}`,
   );
 </script>
 
@@ -16,7 +17,7 @@
 
 {#if showNumbers}
   <div class="nums label">
-    <span>추출 <b class="num">{num(funnel?.extracted)}</b></span>
+    <span>{STAGE_LABELS.extracted} <b class="num">{num(funnel?.extracted)}</b></span>
     {#each segments as s (s.key)}
       <span style="color:{s.key === 'pending' ? 'var(--muted)' : s.color}">
         {s.label} <b class="num">{num(s.count)}</b>

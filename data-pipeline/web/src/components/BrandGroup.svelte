@@ -21,7 +21,7 @@
   {#if open}
     <table>
       <thead>
-        <tr><th>문서</th><th style="width:180px">퍼널</th><th style="width:130px">마지막 수집</th></tr>
+        <tr><th>문서</th><th style="width:180px">단계별 현황</th><th style="width:130px">마지막 수집</th></tr>
       </thead>
       <tbody>
         {#each group.documents as d (d.id)}

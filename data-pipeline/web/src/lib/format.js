@@ -1,11 +1,11 @@
-// 퍼널 표시와 일시 포맷.
+// 단계별 현황 표시와 일시 포맷.
+import { STAGE_LABELS } from '../components/funnel_labels.js';
+
 export const FUNNEL_COLORS = {
   training: '#059669',
   rejected: '#dc2626',
   pending: '#e5e7eb',
 };
-
-const LABELS = { training: '학습', rejected: '버림', pending: '대기' };
 
 export function funnelSegments(funnel) {
   const total = funnel?.extracted || 0;
@@ -13,7 +13,7 @@ export function funnelSegments(funnel) {
     const count = funnel?.[key] || 0;
     return {
       key,
-      label: LABELS[key],
+      label: STAGE_LABELS[key],
       count,
       color: FUNNEL_COLORS[key],
       pct: total ? (count / total) * 100 : 0,

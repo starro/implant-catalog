@@ -13,9 +13,9 @@
   let busy = $state(false);
   let editing = $state(false);
   let edit = $state({ name: '', brand: '', memo: '', conf: 0.35, dpi: 200, pages: '' });
-  let settings = $state({ DAGSTER_URL: '', FIFTYONE_URL: '' });
+  let settings = $state({ FIFTYONE_URL: '' });
 
-  // 최신 수집이 진행 중인가 — 진행 중엔 빈 퍼널 대신 인디케이터를 보여준다.
+  // 최신 수집이 진행 중인가 — 진행 중엔 빈 단계별 현황 대신 인디케이터를 보여준다.
   let running = $derived(
     !!doc?.runs?.[0] && ['QUEUED', 'RUNNING'].includes(doc.runs[0].status),
   );
@@ -178,8 +178,8 @@
   {/if}
 
   <h3>수집 이력</h3>
-  <RunTable runs={doc.runs} dagsterBase={settings.DAGSTER_URL} />
-  <p class="label">같은 이미지는 content_hash 로 중복 제거됩니다 — 재수집해도 퍼널이 부풀지 않습니다.</p>
+  <RunTable runs={doc.runs} />
+  <p class="label">같은 이미지는 content_hash 로 중복 제거됩니다 — 재수집해도 단계별 현황이 부풀지 않습니다.</p>
 {/if}
 
 <style>
@@ -187,7 +187,7 @@
   h3 { font-size: 13px; margin: 20px 0 6px; }
   .url { word-break: break-all; }
   .funnel { margin: 14px 0; max-width: 620px; }
-  /* 진행 중 인디케이터 — 좌우로 흐르는 막대(결정 불가 상태). 빈 퍼널과 헷갈리지 않게. */
+  /* 진행 중 인디케이터 — 좌우로 흐르는 막대(결정 불가 상태). 빈 단계별 현황과 헷갈리지 않게. */
   .progress { height: 14px; border-radius: 4px; background: var(--pending); overflow: hidden; }
   .progress span { display: block; width: 35%; height: 100%; border-radius: 4px;
                    background: var(--accent); animation: slide 1.2s ease-in-out infinite; }

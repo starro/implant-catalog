@@ -40,7 +40,6 @@
 <nav class="top">
   <b>Dr.HERi 데이터 파이프라인</b>
   <div class="right">
-    <a href="http://58.229.105.3:3333" target="_blank" rel="noreferrer">Dagster ↗</a>
     <a href="http://58.229.105.3:5151" target="_blank" rel="noreferrer">FiftyOne ↗</a>
     <button class="primary" onclick={sync} disabled={syncing}>
       {syncing ? '반영 중…' : '검수결과 반영'}
