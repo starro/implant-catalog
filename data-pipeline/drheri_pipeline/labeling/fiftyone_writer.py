@@ -29,6 +29,7 @@ def register_prelabeled(records: list[dict], log=print) -> int:
             ds.add_sample_field(f, fo.StringField)
         ds.add_sample_field("ai_confidence", fo.FloatField)
         ds.add_sample_field("source_page", fo.IntField)
+        ds.add_sample_field("is_fixture", fo.BooleanField)
 
     existing = set(ds.values("content_hash")) if len(ds) else set()
     samples = []
@@ -42,12 +43,15 @@ def register_prelabeled(records: list[dict], log=print) -> int:
             s[f] = r.get(f)
         s["ai_confidence"] = float(r.get("ai_confidence") or 0.0)
         s["source_page"] = int(r.get("source_page") or 0)
+        s["is_fixture"] = r.get("is_fixture")     # bool|None (검수 필터용, 버리진 않음)
         s["modality"] = "catalog"
         s["stage"] = "review"
         s["source_id"] = "catalog_vlm"
         s["origin_url"] = r.get("origin_url")
         if r.get("needs_review"):
             s.tags.append("needs_review")
+        if r.get("is_fixture") is False:          # VLM 이 '픽스처 아님' 판단 → 발라내기 필터 태그
+            s.tags.append("not_fixture")
         samples.append(s)
     if samples:
         ds.add_samples(samples)

@@ -59,7 +59,9 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             length = (sp.length if sp and sp.length else
                       parse_length(brand, sp.part_number if sp else None))
             conf = sp.confidence if sp else 0.0
-            needs = conf < conf_min or not model or not diameter
+            is_fixture = sp.is_fixture if sp else None
+            # 검출은 안 버린다(사람이 FiftyOne 에서 발라냄). needs_review = 저신뢰·필드누락·비픽스처.
+            needs = conf < conf_min or not model or not diameter or is_fixture is False
             dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
                                            "catalog", chash, "png")
             if not dst.exists():
@@ -70,6 +72,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
                 "brand": brand, "model": model, "diameter": diameter, "length": length,
                 "part_number": sp.part_number if sp else None,
                 "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
+                "is_fixture": is_fixture,
                 "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
                 "source_page": page.page_no, "page_no": page.page_no,
                 "bbox": list(b.xyxy), "needs_review": needs,

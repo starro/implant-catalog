@@ -15,15 +15,19 @@ import httpx
 
 _URL = "http://127.0.0.1:8000/v1/chat/completions"
 
-_SYS = ("You label dental implant catalog pages. Return ONLY a JSON array, no prose. "
-        "The image has red boxes each with a number; each box outlines ONE rendered "
-        "implant fixture. Look at the fixture INSIDE each numbered box and find ITS row "
-        "in the page's spec table, then report that row's spec for that box.")
+_SYS = ("You label dental implant catalog/manual pages. Return ONLY a JSON array, no prose. "
+        "The image has red boxes each with a number. Look at what is INSIDE each numbered "
+        "box. Some boxes really are an implant fixture (a screw-shaped implant body); others "
+        "may be a diagram, tool, x-ray, or illustration — NOT a fixture. Judge each honestly, "
+        "and when a box is a fixture find ITS spec from the page text/table.")
 _PROMPT = ('There are exactly {n} numbered red boxes (0..{last}). Return a JSON array of '
            'EXACTLY {n} objects, one per box, using that box number as "index" (0-based). '
            'Include every box even if unsure (use nulls). Each object: '
-           '{{"index":int,"model":str|null,"diameter":str|null,"length":str|null,'
-           '"part_number":str|null,"confidence":0..1,"evidence":str}}. '
+           '{{"index":int,"is_fixture":bool,"model":str|null,"diameter":str|null,'
+           '"length":str|null,"part_number":str|null,"confidence":0..1,"evidence":str}}. '
+           'is_fixture=false when the box is NOT a real implant fixture (diagram/tool/x-ray/'
+           'illustration). Give an HONEST confidence 0..1 — do NOT always answer 1; lower it '
+           'when the box is not a clear fixture or the spec is uncertain. '
            'Brand is {brand}. Page text:\n{page_text}')
 
 
@@ -36,6 +40,7 @@ class BoxSpec:
     part_number: str | None
     confidence: float
     evidence: str
+    is_fixture: bool | None = None    # VLM 판단(픽스처 아님이면 False) — 버리진 않고 검수 필터용
 
 
 def _b64(img) -> str:
@@ -43,12 +48,27 @@ def _b64(img) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def _as_bool(v) -> bool | None:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("true", "yes", "y", "1"):
+            return True
+        if s in ("false", "no", "n", "0"):
+            return False
+    return None
+
+
 def _spec(d: dict) -> BoxSpec:
     return BoxSpec(index=int(d.get("index", 0)), model=d.get("model"),
                    diameter=d.get("diameter"), length=d.get("length"),
                    part_number=d.get("part_number"),
                    confidence=float(d.get("confidence") or 0.0),
-                   evidence=(d.get("evidence") or "")[:300])
+                   evidence=(d.get("evidence") or "")[:300],
+                   is_fixture=_as_bool(d.get("is_fixture")))
 
 
 def _call(img, text, url, model_name) -> list[dict]:

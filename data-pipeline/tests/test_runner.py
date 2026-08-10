@@ -48,3 +48,18 @@ def test_needs_review_when_confidence_low(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "register_prelabeled", lambda recs, log=print: len(recs))
     summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
     assert summ.needs_review == 1
+
+
+def test_not_fixture_forces_needs_review(tmp_path, monkeypatch):
+    # 스펙이 좋아도 is_fixture=False 면 needs_review (버리진 않고 검수로 발라냄)
+    monkeypatch.setattr(runner.storage, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m.jsonl")
+    pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=1)
+    monkeypatch.setattr(runner, "detect_fixtures", lambda v, **k: [Box(0.5, (1, 1, 5, 5))])
+    monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
+        BoxSpec(0, "SC", "4.1", "L8", "58160", 0.95, "ok", is_fixture=False)])
+    written = {"recs": None}
+    monkeypatch.setattr(runner, "register_prelabeled",
+                        lambda recs, log=print: written.__setitem__("recs", recs) or len(recs))
+    summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
+    assert summ.needs_review == 1 and written["recs"][0]["is_fixture"] is False

@@ -51,6 +51,17 @@ def test_map_specs_normalizes_1based_index(monkeypatch):
     assert [s.model for s in specs] == ["A", "B"] and [s.index for s in specs] == [0, 1]
 
 
+def test_map_specs_parses_is_fixture(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
+        return _resp([{"index": 0, "is_fixture": True, "model": "SC", "diameter": "4.1", "confidence": 0.9},
+                      {"index": 1, "is_fixture": False, "confidence": 0.2}])
+    monkeypatch.setattr(mapper.httpx, "post", fake_post)
+    view = Image.new("RGB", (20, 20)); master = Image.new("RGB", (40, 40))
+    boxes = [Box(0.5, (1, 1, 5, 5)), Box(0.5, (6, 6, 9, 9))]
+    specs = mapper.map_specs(view, master, boxes, "BEGO", "txt")
+    assert specs[0].is_fixture is True and specs[1].is_fixture is False
+
+
 def test_map_specs_null_confidence_does_not_crash(monkeypatch):
     def fake_post(url, json=None, timeout=None):
         return _resp([{"index": 0, "model": "SC", "diameter": "4.1", "confidence": None}])
