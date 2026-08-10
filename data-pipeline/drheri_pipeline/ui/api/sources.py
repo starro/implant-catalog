@@ -1,6 +1,9 @@
 """소스(브랜드 › 문서) API."""
 from __future__ import annotations
 
+import os
+
+import httpx
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.routing import Route
@@ -119,8 +122,28 @@ async def reset_source(request: Request):
     return ok(result)
 
 
+async def set_fiftyone_view(request: Request):
+    """'이 문서만 보기' — FiftyOne 공유 세션 뷰를 doc-<id> 로 직접 교체(필터 잔존 회피).
+
+    serve 프로세스의 세션 제어 서버(127.0.0.1:5152)에 프록시한다. URL ?view= 방식은
+    단일 세션에서 이전 필터와 충돌해 되돌아가므로, session.view 를 서버에서 세팅한다.
+    """
+    doc_id = request.path_params["doc_id"]
+    url = os.getenv("FIFTYONE_CTL_URL", "http://127.0.0.1:5152")
+
+    def _call():
+        return httpx.get(f"{url}/setview", params={"doc": doc_id}, timeout=10).json()
+
+    try:
+        res = await run_in_threadpool(_call)
+    except Exception as e:  # noqa: BLE001
+        raise ApiError("fiftyone_ctl", f"FiftyOne 뷰 설정 실패: {e}", status=502) from e
+    return ok({"doc_id": doc_id, "result": res})
+
+
 routes = [
     Route("/api/sources", list_sources, methods=["GET"]),
+    Route("/api/sources/{doc_id:int}/fiftyone-view", set_fiftyone_view, methods=["POST"]),
     Route("/api/sources/check", check_url, methods=["GET"]),
     Route("/api/sources", create_source, methods=["POST"]),
     Route("/api/sources/{doc_id:int}", get_source, methods=["GET"]),

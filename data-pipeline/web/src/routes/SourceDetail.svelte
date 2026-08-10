@@ -81,6 +81,17 @@
     }
   }
 
+  // '이 문서만 보기' — 서버에서 세션 뷰를 doc-N 으로 확정한 뒤 FiftyOne 탭을 연다.
+  // (URL ?view= 는 단일세션에서 이전 필터와 충돌 → 서버 session.view 세팅이 확실)
+  async function viewInFiftyone() {
+    try {
+      await post(`/api/sources/${id}/fiftyone-view`);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+    window.open(`${settings.FIFTYONE_URL}/datasets/drheri`, 'fiftyone');
+  }
+
   async function checkStatus() {
     busy = true;
     try {
@@ -178,8 +189,7 @@
     {/if}
     <button onclick={checkStatus} disabled={busy}>상태 확인</button>
     {#if doc.funnel.extracted > 0}
-      <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri?view=doc-{doc.id}"
-         target="fiftyone" rel="noreferrer">FiftyOne 에서 이 문서만 보기</a>
+      <button class="btn" onclick={viewInFiftyone}>FiftyOne 에서 이 문서만 보기</button>
     {/if}
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
@@ -229,7 +239,8 @@
   }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
   .btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px;
-         color: var(--text); text-decoration: none; }
+         color: var(--text); text-decoration: none; background: none;
+         cursor: pointer; font: inherit; }
   .edit { border: 1px solid var(--border); border-radius: 6px; padding: 12px; max-width: 620px; }
   .row { display: flex; gap: 6px; margin-bottom: 6px; }
   .row > * { flex: 1; }
