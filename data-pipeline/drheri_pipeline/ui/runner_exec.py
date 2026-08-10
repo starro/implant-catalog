@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import subprocess
+from pathlib import Path
 
 from drheri_pipeline import storage
 from drheri_pipeline.db import conn, writes
@@ -22,6 +23,27 @@ def tmp_dir(run_id: int) -> str:
     return f"/engine/run_{run_id}"
 
 
+def src_path(run_id: int) -> str:
+    """업로드 파일을 주입할 컨테이너 경로(런 tmp 의 형제 — cp 대상에서 제외)."""
+    return f"/engine/run_{run_id}_src.pdf"
+
+
+def _prepare_pdf(run_id: int, pdf: str) -> str:
+    """엔진에 넘길 --pdf 값을 확정. 호스트 업로드 파일이면 컨테이너로 주입하고 컨테이너 경로를 돌려준다.
+
+    - URL(http/https) → 그대로(엔진이 컨테이너 안에서 직접 다운로드)
+    - 호스트에 존재하는 파일(업로드) → `docker cp` 로 컨테이너 주입 → 컨테이너 경로
+    - 그 외(이미 컨테이너 경로 등) → 그대로
+    """
+    if pdf.startswith(("http://", "https://")):
+        return pdf
+    if Path(pdf).exists():                     # API 호스트에 있는 업로드 파일
+        dst = src_path(run_id)
+        subprocess.run(["docker", "cp", pdf, f"{CONTAINER}:{dst}"], check=True)
+        return dst
+    return pdf
+
+
 def exec_cmd(run_id: int, pdf: str, brand: str, pages: str, dpi: int, conf_min: float) -> list[str]:
     inner = (f"PYTHONPATH={ENGINE_PYTHONPATH} DATA_ROOT={tmp_dir(run_id)} "
              f"python -m drheri_pipeline.labeling.cli "
@@ -36,7 +58,8 @@ def cp_cmd(run_id: int) -> list[str]:
 
 
 def rm_cmd(run_id: int) -> list[str]:
-    return ["docker", "exec", CONTAINER, "rm", "-rf", tmp_dir(run_id)]
+    # 런 tmp 와 주입된 업로드 파일 둘 다 정리(주입 안 됐으면 없는 경로라도 rm -rf 는 무해)
+    return ["docker", "exec", CONTAINER, "rm", "-rf", tmp_dir(run_id), src_path(run_id)]
 
 
 def _read_container_manifest(run_id: int) -> list[dict]:
@@ -92,7 +115,8 @@ async def run_engine(doc_id: int, run_id: int, pdf: str, brand: str, pages: str,
         await asyncio.to_thread(_set_running, run_id)
         status, extracted, error = "SUCCESS", 0, None
         try:
-            proc = await asyncio.create_subprocess_exec(*exec_cmd(run_id, pdf, brand, pages, dpi, conf_min))
+            engine_pdf = await asyncio.to_thread(_prepare_pdf, run_id, pdf)   # 업로드 파일이면 컨테이너 주입
+            proc = await asyncio.create_subprocess_exec(*exec_cmd(run_id, engine_pdf, brand, pages, dpi, conf_min))
             rc = await proc.wait()
             if rc != 0:
                 raise RuntimeError(f"engine exit {rc}")

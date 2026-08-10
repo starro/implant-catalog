@@ -117,3 +117,32 @@ def test_run_engine_failure_still_cleans_up(tmp_path, monkeypatch):
     st = cx.execute("SELECT status FROM run WHERE id=?", (run_id,)).fetchone()["status"]
     cx.close()
     assert st == "FAILURE" and calls["rm"] == 1     # 실패해도 tmp 정리
+
+
+def test_prepare_pdf_url_passthrough():
+    assert R._prepare_pdf(7, "http://x/a.pdf") == "http://x/a.pdf"
+    assert R._prepare_pdf(7, "https://x/a.pdf") == "https://x/a.pdf"
+
+
+def test_prepare_pdf_injects_host_file(tmp_path, monkeypatch):
+    f = tmp_path / "up.pdf"; f.write_bytes(b"%PDF")
+    calls = []
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        class R2: returncode = 0
+        return R2()
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    out = R._prepare_pdf(7, str(f))
+    assert out == "/engine/run_7_src.pdf"
+    assert calls and calls[0][:2] == ["docker", "cp"] and str(f) in calls[0]
+
+
+def test_prepare_pdf_container_path_passthrough():
+    # 호스트에 없는 경로(컨테이너 로컬 등) → 그대로
+    assert R._prepare_pdf(7, "/nonexistent-container-only.pdf") == "/nonexistent-container-only.pdf"
+
+
+def test_rm_cmd_cleans_injected_src():
+    rm = R.rm_cmd(7)
+    j = " ".join(rm)
+    assert "/engine/run_7" in j and "/engine/run_7_src.pdf" in j
