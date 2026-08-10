@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { post } from './lib/api.js';
+  import { get, post } from './lib/api.js';
   import { connect } from './lib/events.js';
   import { route } from './lib/router.svelte.js';
   import { toast } from './lib/stores.svelte.js';
@@ -20,9 +20,11 @@
   ];
 
   let syncing = $state(false);
+  let fiftyoneUrl = $state('');            // 헤더 FiftyOne 링크 — 설정(/api/settings)에서 읽는다
 
   onMount(() => {
     const es = connect();
+    get('/api/settings').then((s) => (fiftyoneUrl = s.FIFTYONE_URL || '')).catch(() => {});
     return () => es.close();
   });
 
@@ -42,7 +44,9 @@
   <b>Dr.HERi 데이터 파이프라인</b>
   <div class="right">
     <EngineControl />
-    <a href="http://58.229.105.3:5151" target="_blank" rel="noreferrer">FiftyOne ↗</a>
+    {#if fiftyoneUrl}
+      <a href={fiftyoneUrl} target="_blank" rel="noreferrer">FiftyOne ↗</a>
+    {/if}
     <button class="primary" onclick={sync} disabled={syncing}>
       {syncing ? '반영 중…' : '검수결과 반영'}
     </button>
