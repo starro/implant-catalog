@@ -62,6 +62,16 @@ def rm_cmd(run_id: int) -> list[str]:
     return ["docker", "exec", CONTAINER, "rm", "-rf", tmp_dir(run_id), src_path(run_id)]
 
 
+def read_progress(run_id: int) -> dict:
+    """컨테이너 런 tmp 의 progress.json 을 읽는다(수집 중 진행표시용). 없으면 빈 dict."""
+    r = subprocess.run(["docker", "exec", CONTAINER, "cat", f"{tmp_dir(run_id)}/progress.json"],
+                       capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 def _read_container_manifest(run_id: int) -> list[dict]:
     """컨테이너 tmp 의 이번 런 manifest.jsonl 을 직접 읽는다(호스트 cp 덮어쓰기와 무관)."""
     r = subprocess.run(["docker", "exec", CONTAINER, "cat", f"{tmp_dir(run_id)}/manifest.jsonl"],

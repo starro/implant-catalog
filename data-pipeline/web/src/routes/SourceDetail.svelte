@@ -4,7 +4,7 @@
   import RunTable from '../components/RunTable.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { ENGINE_LABELS } from '../components/engine_labels.js';
-  import { dateTime } from '../lib/format.js';
+  import { dateTime, duration } from '../lib/format.js';
   import { engine, liveEvents, loadSources, toast } from '../lib/stores.svelte.js';
   import { navigate } from '../lib/router.svelte.js';
 
@@ -15,11 +15,27 @@
   let editing = $state(false);
   let edit = $state({ name: '', brand: '', memo: '', conf: 0.35, dpi: 200, pages: '' });
   let settings = $state({ FIFTYONE_URL: '' });
+  let progress = $state({ done: 0, total: 0, crops: 0 });   // 수집 중 실시간 진행(페이지/크롭)
 
   // 최신 수집이 진행 중인가 — 진행 중엔 빈 단계별 현황 대신 인디케이터를 보여준다.
   let running = $derived(
     !!doc?.runs?.[0] && ['QUEUED', 'RUNNING'].includes(doc.runs[0].status),
   );
+
+  // 수집 중이면 3초마다 진행상황을 가져온다(컨테이너 progress.json). GPU 안 씀.
+  $effect(() => {
+    if (!running) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const p = await get(`/api/sources/${id}/runs/latest/progress`);
+        if (alive) progress = p;
+      } catch { /* 진행 파일 없거나 일시 오류 — 무시 */ }
+    };
+    tick();
+    const t = setInterval(tick, 5000);          // 5초 — 페이지당 ~15초라 충분, docker exec cat 은 가벼움
+    return () => { alive = false; clearInterval(t); };
+  });
 
   async function load() {
     try {
@@ -135,13 +151,21 @@
     브랜드 <b>{doc.brand}</b> · 등록 {dateTime(doc.created_at)}
     · 마지막 수집 {dateTime(doc.runs[0]?.started_at)}
     {#if doc.runs[0]}<StatusBadge status={doc.runs[0].status} />{/if}
+    {#if doc.runs[0]?.finished_at}
+      <span class="label">· 완료 {dateTime(doc.runs[0].finished_at)}{#if duration(doc.runs[0].started_at, doc.runs[0].finished_at)} (소요 {duration(doc.runs[0].started_at, doc.runs[0].finished_at)}){/if}</span>
+    {/if}
     {#if doc.status === 'archived'}<b class="archived">보관됨</b>{/if}
   </div>
 
   <div class="funnel">
     {#if running}
-      <div class="progress"><span></span></div>
-      <div class="label">수집 중… 완료되면 자동으로 채워집니다</div>
+      {#if progress.total > 0}
+        <div class="pbar"><span style="width: {Math.round(progress.done / progress.total * 100)}%"></span></div>
+        <div class="label">페이지 {progress.done}/{progress.total} · 검출 {progress.crops}장 (수집 중…)</div>
+      {:else}
+        <div class="progress"><span></span></div>
+        <div class="label">수집 준비 중… (렌더링)</div>
+      {/if}
     {:else}
       <FunnelBar funnel={doc.funnel} height={14} />
     {/if}
@@ -192,6 +216,10 @@
   .url { word-break: break-all; }
   .funnel { margin: 14px 0; max-width: 620px; }
   /* 진행 중 인디케이터 — 좌우로 흐르는 막대(결정 불가 상태). 빈 단계별 현황과 헷갈리지 않게. */
+  /* 결정형 진행바 — 페이지 진행률(done/total) 을 실제 폭으로 표시 */
+  .pbar { height: 14px; border-radius: 4px; background: var(--pending); overflow: hidden; }
+  .pbar span { display: block; height: 100%; background: var(--accent);
+               border-radius: 4px; transition: width 0.4s ease; }
   .progress { height: 14px; border-radius: 4px; background: var(--pending); overflow: hidden; }
   .progress span { display: block; width: 35%; height: 100%; border-radius: 4px;
                    background: var(--accent); animation: slide 1.2s ease-in-out infinite; }

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { dateTime, funnelSegments } from './format.js';
+import { dateTime, duration, funnelSegments } from './format.js';
 
 const FUNNEL = { extracted: 100, training: 30, rejected: 10, pending: 60 };
 
@@ -25,4 +25,16 @@ test('dateTime 은 서울 시간으로 분까지 표시한다', () => {
 
 test('dateTime 은 빈 값에 대해 대시를 반환한다', () => {
   expect(dateTime(null)).toBe('—');
+});
+
+test('duration 은 초/분/시간 단위로 소요시간을 만든다', () => {
+  const s = '2026-08-10T00:00:00Z';
+  expect(duration(s, '2026-08-10T00:00:45Z')).toBe('45초');
+  expect(duration(s, '2026-08-10T00:03:00Z')).toBe('3분');
+  expect(duration(s, '2026-08-10T00:03:12Z')).toBe('3분 12초');
+  expect(duration(s, '2026-08-10T01:05:00Z')).toBe('1시간 5분');
+});
+
+test('duration 은 미완료(끝시간 없음)면 빈 문자열이다', () => {
+  expect(duration('2026-08-10T00:00:00Z', null)).toBe('');
 });

@@ -96,13 +96,18 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
 def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
                   conf_min: float = 0.6, max_workers: int = 4, log=print) -> RunSummary:
     pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log))
+    total = len(pages_list)
     all_recs: list[dict] = []
     fixture_pages = 0
+    done = 0
+    storage.write_progress(0, total, 0)                 # 렌더 끝 — 총 페이지 수 확정
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, log), pages_list):
+            done += 1
             if recs:
                 fixture_pages += 1
                 all_recs.extend(recs)
+            storage.write_progress(done, total, len(all_recs))   # 페이지 처리마다 갱신
     storage.append_manifest(all_recs)
     register_prelabeled(all_recs, log=log)
     summ = RunSummary(pdf=pdf_url, brand=brand, pages=len(pages_list),

@@ -56,6 +56,28 @@ async def latest_run(request: Request):
     return ok(run)
 
 
+async def latest_progress(request: Request):
+    """최신 런의 실시간 진행(페이지 done/total, 크롭 수). RUNNING 일 때만 컨테이너를 읽는다."""
+    doc_id = request.path_params["doc_id"]
+
+    def _run():
+        with conn.session() as cx:
+            row = cx.execute(
+                "SELECT id, status FROM run WHERE document_id=? ORDER BY started_at DESC LIMIT 1",
+                (doc_id,)).fetchone()
+            return dict(row) if row else None
+
+    run = await run_in_threadpool(_run)
+    if run is None:
+        raise ApiError("not_found", "수집 이력이 없습니다", status=404)
+    data = {"status": run["status"], "done": 0, "total": 0, "crops": 0}
+    if run["status"] in ("QUEUED", "RUNNING"):
+        prog = await run_in_threadpool(runner_exec.read_progress, run["id"])
+        for k in ("done", "total", "crops"):
+            data[k] = int(prog.get(k) or 0)
+    return ok(data)
+
+
 async def events(request: Request):
     q = broadcaster.subscribe()
     return StreamingResponse(broadcaster.sse_stream(q), media_type="text/event-stream",
@@ -65,5 +87,6 @@ async def events(request: Request):
 routes = [
     Route("/api/sources/{doc_id:int}/collect", collect, methods=["POST"]),
     Route("/api/sources/{doc_id:int}/runs/latest", latest_run, methods=["GET"]),
+    Route("/api/sources/{doc_id:int}/runs/latest/progress", latest_progress, methods=["GET"]),
     Route("/api/events", events, methods=["GET"]),
 ]

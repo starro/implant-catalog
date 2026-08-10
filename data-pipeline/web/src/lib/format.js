@@ -36,3 +36,18 @@ export function dateTime(iso) {
 export function num(n) {
   return (n ?? 0).toLocaleString('ko-KR');
 }
+
+// 시작~완료 소요시간을 사람이 읽기 좋게. 미완료면 빈 문자열.
+export function duration(startIso, endIso) {
+  if (!startIso || !endIso) return '';
+  const ms = new Date(endIso) - new Date(startIso);
+  if (!(ms >= 0)) return '';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  if (m < 60) return rs ? `${m}분 ${rs}초` : `${m}분`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}시간 ${rm}분` : `${h}시간`;
+}
