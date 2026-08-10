@@ -70,6 +70,31 @@ async def browse(request: Request):
     return ok(await run_in_threadpool(_browse, rel))
 
 
+def _pdf_pages(rel: str) -> dict:
+    """선택한 NAS PDF 의 총 페이지 수. 페이지 범위 지정을 돕기 위해 UI 가 보여준다."""
+    root = _root()
+    root_r = root.resolve() if root.exists() else root
+    if not root_r.is_dir():
+        raise ApiError("unavailable", "NAS 가 마운트되어 있지 않습니다", status=409)
+    target = _safe_target(root_r, rel)
+    if not target.is_file() or not target.name.lower().endswith(".pdf"):
+        raise ApiError("not_found", "PDF 파일을 찾을 수 없습니다", status=404)
+    from pypdf import PdfReader                       # 페이지 수만 — 렌더링 없음
+    try:
+        pages = len(PdfReader(str(target)).pages)
+    except Exception as e:  # noqa: BLE001 — 손상/암호화 PDF 등
+        raise ApiError("pdf_error", f"PDF 페이지 수를 읽을 수 없습니다: {e}", status=422) from e
+    return {"name": target.name, "pages": pages, "size": target.stat().st_size}
+
+
+async def pdfinfo(request: Request):
+    rel = request.query_params.get("path") or ""
+    if not rel:
+        raise ApiError("invalid_request", "path 파라미터가 필요합니다")
+    return ok(await run_in_threadpool(_pdf_pages, rel))
+
+
 routes = [
     Route("/api/nas/browse", browse, methods=["GET"]),
+    Route("/api/nas/pdfinfo", pdfinfo, methods=["GET"]),
 ]

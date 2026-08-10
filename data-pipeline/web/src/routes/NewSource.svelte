@@ -15,6 +15,8 @@
 
   // NAS 브라우저 — 호스트에 마운트된 카탈로그 루트(<브랜드>/<pdf>)를 탐색해 선택한다.
   let nas = $state({ open: false, avail: true, path: '', dirs: [], files: [], loading: false });
+  // 선택한 NAS PDF — 총 페이지 수를 보여줘 페이지 범위 지정을 돕는다.
+  let picked = $state(null);   // { name, pages: number|null }
 
   function fmtSize(n) {
     if (!n) return '';
@@ -50,7 +52,15 @@
     const brandSeg = nas.path.split('/').filter(Boolean)[0];   // 최상위 폴더 = 브랜드
     if (brandSeg) form.brand = brandSeg;
     if (!form.name.trim()) form.name = file.name;
+    picked = { name: file.name, pages: null };
     await checkUrl();
+    try {                                             // 총 페이지 수 조회(선택은 이거 없이도 유효)
+      const rel = (nas.path ? nas.path + '/' : '') + file.name;
+      const info = await get('/api/nas/pdfinfo', { path: rel });
+      picked = { name: file.name, pages: info.pages };
+    } catch (e) {
+      picked = { name: file.name, pages: null };
+    }
     toast('NAS 파일을 선택했습니다', 'success');
   }
 
@@ -182,6 +192,18 @@
       </div>
     {/if}
 
+    {#if picked}
+      <div class="picked">
+        <div>📄 <b>{picked.name}</b>
+          {#if picked.pages}<span class="tot">· 총 {picked.pages}페이지</span>{/if}</div>
+        <div class="prow">
+          <span class="label">수집할 페이지</span>
+          <input bind:value={form.pages}
+                 placeholder={picked.pages ? `예: 1-${picked.pages} 중 12-26, 30 · 비우면 전체` : '예: 12-26, 30 · 비우면 전체'} />
+        </div>
+      </div>
+    {/if}
+
     <div class="label">카탈로그 PDF 주소 또는 파일 드롭</div>
     <input bind:value={form.url} onblur={checkUrl} placeholder="https://…/catalog.pdf" />
     {#if duplicate}
@@ -243,4 +265,10 @@
   .naslist li button:hover { background: var(--pending); }
   .naslist li button.pdf { color: var(--accent); }
   .nas .muted { color: var(--muted); font-size: 11px; }
+  .picked { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--accent);
+            border-radius: 6px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .picked .tot { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .prow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .prow .label { margin: 0; white-space: nowrap; }
+  .prow input { flex: 1; }
 </style>
