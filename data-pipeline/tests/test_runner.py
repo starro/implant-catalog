@@ -3,6 +3,7 @@ from PIL import Image
 from drheri_pipeline.labeling import runner
 from drheri_pipeline.labeling.detect import Box
 from drheri_pipeline.labeling.mapper import BoxSpec
+from drheri_pipeline.labeling.crop_judge import FixtureJudge
 
 
 def _pdf(path, pages=2):
@@ -13,6 +14,7 @@ def _pdf(path, pages=2):
 
 
 def test_label_catalog_end_to_end(tmp_path, monkeypatch):
+    # 기본(crop) 경로: is_fixture=judge_fixtures, model=페이지 제목(model_from_heading)
     monkeypatch.setattr(runner.storage, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "manifest.jsonl")
     pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=2)
@@ -23,8 +25,8 @@ def test_label_catalog_end_to_end(tmp_path, monkeypatch):
         calls["n"] += 1
         return [Box(0.5, (1, 1, 5, 5))] if calls["n"] == 1 else []
     monkeypatch.setattr(runner, "detect_fixtures", fake_detect)
-    monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
-        BoxSpec(0, "SC", "4.1", None, "58160", 0.9, "SC 4.1")])
+    monkeypatch.setattr(runner, "judge_fixtures", lambda *a, **k: [FixtureJudge(True, 0.9, "ok")])
+    monkeypatch.setattr(runner, "model_from_heading", lambda *a, **k: "SC")
     written = {"recs": None}
     monkeypatch.setattr(runner, "register_prelabeled",
                         lambda recs, log=print: written.__setitem__("recs", recs) or len(recs))
@@ -43,23 +45,39 @@ def test_needs_review_when_confidence_low(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m.jsonl")
     pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=1)
     monkeypatch.setattr(runner, "detect_fixtures", lambda v, **k: [Box(0.5, (1, 1, 5, 5))])
-    monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
-        BoxSpec(0, None, None, None, None, 0.2, "")])   # 저confidence + 필드 누락
+    monkeypatch.setattr(runner, "judge_fixtures", lambda *a, **k: [FixtureJudge(True, 0.2, "")])
+    monkeypatch.setattr(runner, "model_from_heading", lambda *a, **k: "SC")
     monkeypatch.setattr(runner, "register_prelabeled", lambda recs, log=print: len(recs))
     summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
     assert summ.needs_review == 1
 
 
 def test_not_fixture_forces_needs_review(tmp_path, monkeypatch):
-    # 스펙이 좋아도 is_fixture=False 면 needs_review (버리진 않고 검수로 발라냄)
+    # is_fixture=False 면 신뢰도 높아도 needs_review (버리진 않고 검수로 발라냄)
     monkeypatch.setattr(runner.storage, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m.jsonl")
     pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=1)
     monkeypatch.setattr(runner, "detect_fixtures", lambda v, **k: [Box(0.5, (1, 1, 5, 5))])
-    monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
-        BoxSpec(0, "SC", "4.1", "L8", "58160", 0.95, "ok", is_fixture=False)])
+    monkeypatch.setattr(runner, "judge_fixtures", lambda *a, **k: [FixtureJudge(False, 0.95, "ok")])
+    monkeypatch.setattr(runner, "model_from_heading", lambda *a, **k: "SC")
     written = {"recs": None}
     monkeypatch.setattr(runner, "register_prelabeled",
                         lambda recs, log=print: written.__setitem__("recs", recs) or len(recs))
     summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
     assert summ.needs_review == 1 and written["recs"][0]["is_fixture"] is False
+
+
+def test_som_mode_uses_map_specs(tmp_path, monkeypatch):
+    # 되돌리기 스위치: JUDGE_MODE="som" 이면 예전 set-of-mark(map_specs)로 동작
+    monkeypatch.setattr(runner, "JUDGE_MODE", "som")
+    monkeypatch.setattr(runner.storage, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(runner.storage, "MANIFEST", tmp_path / "m.jsonl")
+    pdf = tmp_path / "c.pdf"; _pdf(pdf, pages=1)
+    monkeypatch.setattr(runner, "detect_fixtures", lambda v, **k: [Box(0.5, (1, 1, 5, 5))])
+    monkeypatch.setattr(runner, "map_specs", lambda *a, **k: [
+        BoxSpec(0, "SC", "4.1", None, "58160", 0.9, "SC 4.1")])
+    written = {"recs": None}
+    monkeypatch.setattr(runner, "register_prelabeled",
+                        lambda recs, log=print: written.__setitem__("recs", recs) or len(recs))
+    summ = runner.label_catalog(str(pdf), "BEGO", max_workers=1)
+    assert summ.crops == 1 and written["recs"][0]["model"] == "SC"

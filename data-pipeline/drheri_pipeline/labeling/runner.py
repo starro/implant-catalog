@@ -12,6 +12,8 @@ from .render import render_pdf
 from .detect import detect_fixtures
 from .mark import mark_page
 from .mapper import map_specs
+from .crop_judge import judge_fixtures
+from .heading_model import model_from_heading
 from .geom import diameter_for_boxes
 from .partnum_geom import codes_for_boxes, lengths_for_boxes
 from .fiftyone_writer import register_prelabeled
@@ -19,6 +21,12 @@ from .fiftyone_writer import register_prelabeled
 # needs_review(사람 검수 필요) 판정용 VLM 신뢰도 바 — 검출 임계값(conf_min)과 분리한 고정값.
 # conf_min 은 이제 GDINO 검출 민감도(낮을수록 더 검출)이고, 이건 라벨 신뢰도가 낮은 크롭을 거른다.
 NEEDS_REVIEW_CONF = 0.5
+
+# is_fixture 판단 방식 스위치 — 되돌리기용.
+#   "crop": 박스별 개별 크롭 1콜(기본). 조밀한 페이지에서 set-of-mark 실패를 해결(실측 0/27→27/27),
+#           더 빠름. 모델/시리즈는 페이지 제목 텍스트에서 뽑는다(heading_model).
+#   "som" : 예전 set-of-mark 1콜(mapper.map_specs). 문제 시 이 값으로만 바꾸면 즉시 원복.
+JUDGE_MODE = "crop"
 
 
 @dataclass
@@ -47,8 +55,20 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             return []
         # 박스를 읽기순서(위→아래, 좌→우)로 정렬 후 번호 매김 — 표 읽는 순서와 맞아 VLM 정렬이 쉬워진다
         boxes = sorted(boxes, key=lambda b: (b.xyxy[1], b.xyxy[0]))
-        marked = mark_page(page.image, boxes)
-        specs = map_specs(marked, page.image, boxes, brand, page.text)
+        # is_fixture 판단 — JUDGE_MODE 로 스위치(기본 crop). 어느 쪽이든 박스순 배열로 통일.
+        if JUDGE_MODE == "som":
+            specs = map_specs(mark_page(page.image, boxes), page.image, boxes, brand, page.text)
+            is_fix = [s.is_fixture for s in specs]
+            confs = [s.confidence for s in specs]
+            evids = [s.evidence for s in specs]
+            models = [s.model for s in specs]      # 구방식은 VLM 이 모델도 줌
+        else:
+            judges = judge_fixtures(page.image, boxes)     # 박스별 개별 크롭 1콜
+            is_fix = [j.is_fixture for j in judges]
+            confs = [j.confidence for j in judges]
+            evids = [j.evidence for j in judges]
+            page_model = model_from_heading(page.heading, brand)   # 시리즈=페이지 제목(텍스트)
+            models = [page_model] * len(boxes)     # 한 페이지 = 한 시리즈(제목 모호하면 None)
         geom_dias = diameter_for_boxes(page.words, boxes)   # 좌표 기반 직경(없으면 None)
         code_lists = codes_for_boxes(page.words, boxes)     # 좌표 기반 주문코드(없으면 [])
         len_lists = lengths_for_boxes(page.words, boxes)    # 좌표 기반 길이(같은 행 오른쪽, 없으면 None)
@@ -61,8 +81,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             if chash in seen:
                 continue
             seen.add(chash)
-            sp = specs[i] if i < len(specs) else None
-            model = sp.model if sp else None
+            model = models[i] if i < len(models) else None
             geom_d = geom_dias[i] if i < len(geom_dias) else None
             # 직경: 기하(좌표) 우선 — 8B 가 못하는 렌더↔직경 위치매칭을 결정적으로. 없으면 VLM.
             # 지름: 좌표(geom)로 확실할 때만 채운다. VLM 추측은 틀린 값(일괄 4.1)을 만들어 제거 —
@@ -75,8 +94,8 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             part_number_src = "text" if codes else None
             # 길이: 좌표(같은 행 오른쪽 L값)로 확실할 때만. 컬럼/모호면 None → 사람이 채움.
             length = len_lists[i] if i < len(len_lists) else None
-            conf = sp.confidence if sp else 0.0
-            is_fixture = sp.is_fixture if sp else None
+            conf = confs[i] if i < len(confs) else 0.0
+            is_fixture = is_fix[i] if i < len(is_fix) else None
             # needs_review = 저신뢰·모델없음·비픽스처. 지름/길이 빈칸은 '의도된 것'이라 조건에서 뺀다.
             needs = conf < NEEDS_REVIEW_CONF or not model or is_fixture is False
             dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
@@ -88,7 +107,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
                 "stage": "review", "status": "review",
                 "brand": brand, "model": model, "diameter": diameter, "length": length,
                 "part_number": part_number, "part_number_src": part_number_src,
-                "ai_confidence": round(conf, 3), "evidence": sp.evidence if sp else "",
+                "ai_confidence": round(conf, 3), "evidence": evids[i] if i < len(evids) else "",
                 "is_fixture": is_fixture, "diameter_src": diameter_src,
                 "modality": "catalog", "source_id": "catalog_vlm", "source_type": "catalog_vlm",
                 "source_page": page.page_no, "page_no": page.page_no,
