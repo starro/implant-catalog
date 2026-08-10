@@ -25,11 +25,12 @@ MANIFEST = DATA_ROOT / "manifest.jsonl"
 PROGRESS = DATA_ROOT / "progress.json"      # 수집 진행 상황(페이지/크롭) — 호스트가 폴링해 UI 에 표시
 
 
-def write_progress(done: int, total: int, crops: int) -> None:
-    """수집 진행을 런 tmp 에 기록(페이지 done/total, 크롭 수). 실패해도 수집엔 영향 없음."""
+def write_progress(done: int, total: int, crops: int, phase: str = "process") -> None:
+    """수집 진행을 런 tmp 에 기록. phase='render'(렌더링)|'process'(검출). 실패해도 수집엔 무영향."""
     try:
-        PROGRESS.write_text(json.dumps({"done": done, "total": total, "crops": crops}),
-                            encoding="utf-8")
+        PROGRESS.write_text(
+            json.dumps({"done": done, "total": total, "crops": crops, "phase": phase}),
+            encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
 

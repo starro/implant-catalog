@@ -15,7 +15,7 @@
   let editing = $state(false);
   let edit = $state({ name: '', brand: '', memo: '', conf: 0.35, dpi: 200, pages: '' });
   let settings = $state({ FIFTYONE_URL: '' });
-  let progress = $state({ done: 0, total: 0, crops: 0 });   // 수집 중 실시간 진행(페이지/크롭)
+  let progress = $state({ done: 0, total: 0, crops: 0, phase: 'process' });   // 수집 중 실시간 진행
 
   // 최신 수집이 진행 중인가 — 진행 중엔 빈 단계별 현황 대신 인디케이터를 보여준다.
   let running = $derived(
@@ -172,10 +172,13 @@
     {#if running}
       {#if progress.total > 0}
         <div class="pbar"><span style="width: {Math.round(progress.done / progress.total * 100)}%"></span></div>
-        <div class="label">페이지 {progress.done}/{progress.total} · 검출 {progress.crops}장 (수집 중…)</div>
+        <div class="label">
+          {#if progress.phase === 'render'}렌더링 {progress.done}/{progress.total} 페이지
+          {:else}페이지 {progress.done}/{progress.total} · 검출 {progress.crops}장{/if} (수집 중…)
+        </div>
       {:else}
         <div class="progress"><span></span></div>
-        <div class="label">수집 준비 중… (렌더링)</div>
+        <div class="label">수집 준비 중…</div>
       {/if}
     {:else}
       <FunnelBar funnel={doc.funnel} height={14} />
@@ -217,7 +220,6 @@
 
   <h3>수집 이력</h3>
   <RunTable runs={doc.runs} />
-  <p class="label">같은 이미지는 content_hash 로 중복 제거됩니다 — 재수집해도 단계별 현황이 부풀지 않습니다.</p>
 {/if}
 
 <style>

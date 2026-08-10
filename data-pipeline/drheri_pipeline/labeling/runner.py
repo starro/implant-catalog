@@ -95,12 +95,14 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
 
 def label_catalog(pdf_url: str, brand: str, pages: str = "", *, dpi: int = 200,
                   conf_min: float = 0.6, max_workers: int = 4, log=print) -> RunSummary:
-    pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log))
+    def _render_prog(r, t):
+        storage.write_progress(r, t, 0, phase="render")   # 렌더 구간 진행("렌더링 X/N")
+    pages_list = list(render_pdf(pdf_url, pages, dpi=dpi, log=log, on_progress=_render_prog))
     total = len(pages_list)
     all_recs: list[dict] = []
     fixture_pages = 0
     done = 0
-    storage.write_progress(0, total, 0)                 # 렌더 끝 — 총 페이지 수 확정
+    storage.write_progress(0, total, 0)                 # 렌더 끝 — 검출 구간 시작(phase=process)
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         for recs in ex.map(lambda p: _process_page(p, brand, pdf_url, conf_min, log), pages_list):
             done += 1

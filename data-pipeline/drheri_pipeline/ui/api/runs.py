@@ -70,11 +70,12 @@ async def latest_progress(request: Request):
     run = await run_in_threadpool(_run)
     if run is None:
         raise ApiError("not_found", "수집 이력이 없습니다", status=404)
-    data = {"status": run["status"], "done": 0, "total": 0, "crops": 0}
+    data = {"status": run["status"], "done": 0, "total": 0, "crops": 0, "phase": "process"}
     if run["status"] in ("QUEUED", "RUNNING"):
         prog = await run_in_threadpool(runner_exec.read_progress, run["id"])
         for k in ("done", "total", "crops"):
             data[k] = int(prog.get(k) or 0)
+        data["phase"] = prog.get("phase") or "process"
     return ok(data)
 
 

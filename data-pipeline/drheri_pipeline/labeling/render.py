@@ -17,7 +17,8 @@ class RenderedPage:
 
 
 def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
-               log=print) -> Iterator[RenderedPage]:
+               log=print, on_progress=None) -> Iterator[RenderedPage]:
+    """페이지를 순서대로 렌더링해 yield. on_progress(rendered, total) 이 있으면 렌더 진행을 보고한다."""
     import fitz
     from PIL import Image
 
@@ -25,8 +26,10 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
     doc = fitz.open(stream=data, filetype="pdf")
     try:
         want = parse_pages(pages)
-        idxs = ([n - 1 for n in want if 1 <= n <= doc.page_count]
-                if want else range(doc.page_count))
+        idxs = list([n - 1 for n in want if 1 <= n <= doc.page_count]
+                    if want else range(doc.page_count))
+        total = len(idxs)
+        rendered = 0
         for i in idxs:
             page = doc[i]
             try:
@@ -39,6 +42,9 @@ def render_pdf(pdf_path, pages: str = "", *, dpi: int = 200,
             except Exception as e:  # noqa: BLE001 — 페이지 렌더 실패는 스킵+로그(§8)
                 log(f"[render] page {i + 1} 렌더 실패 — 건너뜀 ({e})")
                 continue
+            rendered += 1
+            if on_progress:
+                on_progress(rendered, total)
             yield RenderedPage(page_no=i + 1, image=image, text=text, words=words)
     finally:
         doc.close()
