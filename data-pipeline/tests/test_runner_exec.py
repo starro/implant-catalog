@@ -69,7 +69,7 @@ def _setup(tmp_path, monkeypatch, rc=0, recs=None):
         return R2()
     monkeypatch.setattr(R.subprocess, "run", fake_run)
     reg = {"n": 0}
-    monkeypatch.setattr(R, "register_prelabeled", lambda records, log=print: reg.__setitem__("n", len(records)) or len(records))
+    monkeypatch.setattr(R, "register_prelabeled", lambda records, document_id=None, log=print: reg.__setitem__("n", len(records)) or len(records))
     events = []
     monkeypatch.setattr(R.broadcaster, "publish", lambda t, p: events.append((t, p)))
     return calls, reg, events
