@@ -13,7 +13,7 @@ from .detect import detect_fixtures
 from .mark import mark_page
 from .mapper import map_specs
 from .geom import diameter_for_boxes
-from .partnum_geom import codes_for_boxes
+from .partnum_geom import codes_for_boxes, lengths_for_boxes
 from .fiftyone_writer import register_prelabeled
 
 # needs_review(사람 검수 필요) 판정용 VLM 신뢰도 바 — 검출 임계값(conf_min)과 분리한 고정값.
@@ -51,6 +51,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
         specs = map_specs(marked, page.image, boxes, brand, page.text)
         geom_dias = diameter_for_boxes(page.words, boxes)   # 좌표 기반 직경(없으면 None)
         code_lists = codes_for_boxes(page.words, boxes)     # 좌표 기반 주문코드(없으면 [])
+        len_lists = lengths_for_boxes(page.words, boxes)    # 좌표 기반 길이(같은 행 오른쪽, 없으면 None)
         recs: list[dict] = []
         seen: set[str] = set()
         for i, b in enumerate(boxes):
@@ -72,8 +73,8 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             codes = code_lists[i] if i < len(code_lists) else []
             part_number = ",".join(codes) if codes else None
             part_number_src = "text" if codes else None
-            # 길이: 신뢰할 좌표 신호가 아직 없고 코드 파싱은 신뢰도 낮아 채우지 않는다 → 사람이 채움.
-            length = None
+            # 길이: 좌표(같은 행 오른쪽 L값)로 확실할 때만. 컬럼/모호면 None → 사람이 채움.
+            length = len_lists[i] if i < len(len_lists) else None
             conf = sp.confidence if sp else 0.0
             is_fixture = sp.is_fixture if sp else None
             # needs_review = 저신뢰·모델없음·비픽스처. 지름/길이 빈칸은 '의도된 것'이라 조건에서 뺀다.

@@ -30,6 +30,38 @@ def code_words(words) -> list[tuple[str, float, float]]:
     return out
 
 
+_LEN = re.compile(r"^\d{1,2}(?:\.\d)?$")   # 8, 8.5, 10, 11.5, 13, 15
+
+
+def lengths_for_boxes(words, boxes) -> list[str | None]:
+    """각 박스에 '같은 행 바로 오른쪽'의 길이값(6~20mm)을 배정 — 코드와 동일한 행 매칭.
+
+    표 구조 [썸네일 | L | D | 코드] 에서 L 값을 뽑는다. 개별 썸네일(공격적 검출)은 한 행이라
+    길이 1개 → 그 값. 컬럼 박스(여러 행)는 여러 개 → None(모호 → 빈칸, '빈칸 > 틀린값').
+    """
+    toks = []
+    for w in words:
+        t = str(w[4]).strip()
+        if _LEN.match(t) and 6.0 <= float(t) <= 20.0:
+            toks.append((t, (float(w[1]) + float(w[3])) / 2, float(w[0])))
+    per_box: list[list[tuple[float, str]]] = [[] for _ in boxes]
+    for t, yc, cx in toks:
+        best_i, best_dx = None, None
+        for i, b in enumerate(boxes):
+            x0, y0, x1, y1 = b.xyxy
+            if y0 - 3 <= yc <= y1 + 3 and x1 <= cx <= x1 + (x1 - x0) * 4 + 20:
+                dx = cx - x1
+                if best_dx is None or dx < best_dx:
+                    best_i, best_dx = i, dx
+        if best_i is not None:
+            per_box[best_i].append((yc, t))
+    out: list[str | None] = []
+    for lst in per_box:
+        vals = [t for _, t in sorted(lst)]
+        out.append(vals[0] if len(vals) == 1 else None)   # 1개만 신뢰, 0/여러개 → None
+    return out
+
+
 def codes_for_boxes(words, boxes) -> list[list[str]]:
     """각 박스에 '같은 행에서 바로 왼쪽 박스'인 주문코드들을 배정(위→아래 정렬).
 

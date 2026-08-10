@@ -1,4 +1,4 @@
-from drheri_pipeline.labeling.partnum_geom import code_words, codes_for_boxes
+from drheri_pipeline.labeling.partnum_geom import code_words, codes_for_boxes, lengths_for_boxes
 
 
 class _B:
@@ -37,3 +37,27 @@ def test_no_codes_returns_empty_lists():
     boxes = [_B((100, 300, 200, 500))]
     words = [(250, 340, 340, 360, "8.5"), (300, 360, 360, 380, "Regular")]
     assert codes_for_boxes(words, boxes) == [[]]
+
+
+def test_length_same_row_right_single():
+    # 개별 썸네일(한 행): 오른쪽 길이값 1개 → 그 값
+    boxes = [_B((100, 300, 200, 340)), _B((100, 400, 200, 440))]
+    words = [
+        (250, 310, 290, 330, "8.5"),    # box0 행 오른쪽
+        (250, 410, 290, 430, "10"),     # box1 행 오른쪽
+        (250, 310, 290, 330, "Regular"),  # 길이 아님(무시)
+    ]
+    assert lengths_for_boxes(words, boxes) == ["8.5", "10"]
+
+
+def test_length_none_when_multiple_rows():
+    # 컬럼 박스(여러 행) → 여러 길이 → None(모호)
+    col = [_B((100, 300, 200, 500))]
+    words = [(250, 340, 290, 360, "8.5"), (250, 440, 290, 460, "10")]
+    assert lengths_for_boxes(words, col) == [None]
+
+
+def test_length_none_when_no_length_right():
+    # 오른쪽에 길이값 없으면 None
+    boxes = [_B((100, 300, 200, 340))]
+    assert lengths_for_boxes([(300, 310, 340, 330, "Regular")], boxes) == [None]
