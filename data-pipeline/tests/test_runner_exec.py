@@ -31,7 +31,6 @@ def test_cp_and_rm_cmd(monkeypatch, tmp_path):
 
 
 import asyncio, json
-import pytest
 from drheri_pipeline.ui import runner_exec as R
 
 
@@ -49,11 +48,19 @@ def _setup(tmp_path, monkeypatch, rc=0, recs=None):
     conn.migrate()
     async def fake_exec(*a, **k): return _Proc(rc)
     monkeypatch.setattr(R.asyncio, "create_subprocess_exec", fake_exec)
-    calls = {"cp": 0, "rm": 0}
+    calls = {"cp": 0, "rm": 0, "cat": 0}
     def fake_run(cmd, **k):
+        if "cat" in cmd:
+            calls["cat"] += 1
+            # 컨테이너의 이번 런 manifest.jsonl 을 직접 읽어온 것처럼 준비
+            class R3:
+                stdout = "\n".join(json.dumps(r) for r in (recs or []))
+                stderr = ""
+                returncode = 0
+            return R3()
         if cmd[:2] == ["docker", "cp"]:
             calls["cp"] += 1
-            # cp 가 tmp manifest 를 호스트로 옮겨온 것처럼 준비
+            # docker cp 가 호스트 manifest 를 이번 런 것으로 덮어쓰는 것처럼 재현(클로버)
             (tmp_path / "manifest.jsonl").write_text(
                 "\n".join(json.dumps(r) for r in (recs or [])), encoding="utf-8")
         if "rm" in cmd:
@@ -70,10 +77,16 @@ def _setup(tmp_path, monkeypatch, rc=0, recs=None):
 
 def test_run_engine_success(tmp_path, monkeypatch):
     from drheri_pipeline.db import conn, writes
+    from drheri_pipeline import storage
     recs = [{"content_hash": "h1", "path": "review/BEGO/catalog/h1.png", "brand": "BEGO",
              "is_fixture": True, "diameter": "4.1", "diameter_src": "geom",
              "needs_review": False, "page_no": 1, "bbox": [1, 2, 3, 4]}]
     calls, reg, events = _setup(tmp_path, monkeypatch, rc=0, recs=recs)
+    # 이전 런에서 이미 누적돼 있던 매니페스트 레코드 (덮어쓰기로 유실되면 안 됨)
+    prior_rec = {"content_hash": "h0", "path": "review/BEGO/catalog/h0.png", "brand": "BEGO",
+                 "is_fixture": True, "diameter": "3.5", "diameter_src": "geom",
+                 "needs_review": False, "page_no": 1, "bbox": [0, 0, 1, 1]}
+    storage.append_manifest([prior_rec])
     with conn.session() as cx:
         d = writes.create_document(cx, brand_raw="BEGO", name="c", url="u1",
                                    source_type="catalog_vlm", default_conf=0.3, default_dpi=200,
@@ -85,6 +98,10 @@ def test_run_engine_success(tmp_path, monkeypatch):
     cx.close()
     assert st == "SUCCESS" and reg["n"] == 1 and calls["rm"] == 1
     assert any(t == "run.finished" for t, _ in events)
+    # 매니페스트는 덮어써지지 않고 누적된다: 이전 1건 + 이번 런 1건
+    manifest = storage.read_manifest()
+    assert len(manifest) == 1 + len(recs)
+    assert {r["content_hash"] for r in manifest} == {"h0", "h1"}
 
 
 def test_run_engine_failure_still_cleans_up(tmp_path, monkeypatch):
