@@ -55,7 +55,8 @@ def test_run_sync_applies_tags_labels_and_promotion(data_root, monkeypatch):
         k1 = cx.execute("SELECT * FROM image WHERE content_hash='k1'").fetchone()
         k2 = cx.execute("SELECT * FROM image WHERE content_hash='k2'").fetchone()
     assert f == {"extracted": 3, "training": 1, "rejected": 1, "pending": 1,
-                 "unreviewed": 0, "label_incomplete": 1}
+                 "unreviewed": 0, "label_incomplete": 1,
+                 "needs_review": 0, "not_fixture": 0}
     assert k1["stage"] == "training"
     assert k1["surface"] == "SA"
     assert (storage.DATA_ROOT / k1["rel_path"]).exists()

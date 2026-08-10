@@ -16,11 +16,14 @@ _FUNNEL_SELECT = """
   SUM(CASE WHEN i.review_state='rejected' THEN 1 ELSE 0 END)   AS rejected,
   SUM(CASE WHEN i.review_state='pending'  THEN 1 ELSE 0 END)   AS unreviewed,
   SUM(CASE WHEN i.review_state='kept' AND i.stage<>'training'
-                                          THEN 1 ELSE 0 END)   AS label_incomplete
+                                          THEN 1 ELSE 0 END)   AS label_incomplete,
+  SUM(CASE WHEN i.needs_review=1          THEN 1 ELSE 0 END)   AS needs_review,
+  SUM(CASE WHEN i.is_fixture=0            THEN 1 ELSE 0 END)   AS not_fixture
 """
 
 EMPTY_FUNNEL = {"extracted": 0, "training": 0, "rejected": 0,
-                "pending": 0, "unreviewed": 0, "label_incomplete": 0}
+                "pending": 0, "unreviewed": 0, "label_incomplete": 0,
+                "needs_review": 0, "not_fixture": 0}
 
 
 def _funnel(row: sqlite3.Row | None) -> dict:
@@ -36,6 +39,8 @@ def _funnel(row: sqlite3.Row | None) -> dict:
         "pending": extracted - training - rejected,
         "unreviewed": row["unreviewed"] or 0,
         "label_incomplete": row["label_incomplete"] or 0,
+        "needs_review": row["needs_review"] or 0,
+        "not_fixture": row["not_fixture"] or 0,
     }
 
 

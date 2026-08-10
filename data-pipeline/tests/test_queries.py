@@ -61,3 +61,16 @@ def test_find_document_by_url(data_root):
         miss = queries.find_document_by_url(cx, "https://ex.com/zzz.pdf")
     assert hit["name"] == "TS"
     assert miss is None
+
+
+def test_funnel_counts_needs_review_and_not_fixture(data_root):
+    d = None
+    with conn.session() as cx:
+        d = writes.create_document(cx, brand_raw="BEGO", name="c", url="u1",
+                                   source_type="catalog_vlm", default_conf=0.3, default_dpi=200,
+                                   default_pages="", default_series="_unknown", memo="")
+        for h, nf, nr in [("a", True, True), ("b", False, True), ("c", True, False)]:
+            writes.record_image(cx, {"content_hash": h, "path": f"{h}.png", "brand": "BEGO",
+                                     "is_fixture": nf, "needs_review": nr}, d, None)
+        f = queries.funnel_for_document(cx, d)
+    assert f["extracted"] == 3 and f["needs_review"] == 2 and f["not_fixture"] == 1
