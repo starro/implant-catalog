@@ -12,7 +12,6 @@ from .render import render_pdf
 from .detect import detect_fixtures
 from .mark import mark_page
 from .mapper import map_specs
-from .partnum import parse_length
 from .geom import diameter_for_boxes
 from .partnum_geom import codes_for_boxes
 from .fiftyone_writer import register_prelabeled
@@ -65,26 +64,20 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             model = sp.model if sp else None
             geom_d = geom_dias[i] if i < len(geom_dias) else None
             # 직경: 기하(좌표) 우선 — 8B 가 못하는 렌더↔직경 위치매칭을 결정적으로. 없으면 VLM.
-            diameter = geom_d or (sp.diameter if sp else None)
-            diameter_src = "geom" if geom_d else ("vlm" if (sp and sp.diameter) else None)
-            # 주문코드: 텍스트 좌표추출 우선(정확) — 없으면 VLM. 컬럼(여러 코드)은 콤마로.
+            # 지름: 좌표(geom)로 확실할 때만 채운다. VLM 추측은 틀린 값(일괄 4.1)을 만들어 제거 —
+            #       애매하면 None → 사람이 FiftyOne 에서 채움(빈칸 > 틀린값 원칙).
+            diameter = geom_d
+            diameter_src = "geom" if geom_d else None
+            # 주문코드: 텍스트 좌표추출만(정확). VLM 추측 안 씀. 파싱도 안 하고 '사람 참고키'로만 저장.
             codes = code_lists[i] if i < len(code_lists) else []
-            part_number = ",".join(codes) if codes else (sp.part_number if sp else None)
-            part_number_src = "text" if codes else ("vlm" if (sp and sp.part_number) else None)
-            # length: 코드 1개면 그걸로 파싱, 여러 개(컬럼)면 모호→비움, 없으면 기존(기하 우선/VLM/파싱).
-            if len(codes) == 1:
-                length = parse_length(brand, codes[0])
-            elif codes:
-                length = None
-            else:
-                length = (None if geom_d else
-                          (sp.length if sp and sp.length else
-                           parse_length(brand, sp.part_number if sp else None)))
+            part_number = ",".join(codes) if codes else None
+            part_number_src = "text" if codes else None
+            # 길이: 신뢰할 좌표 신호가 아직 없고 코드 파싱은 신뢰도 낮아 채우지 않는다 → 사람이 채움.
+            length = None
             conf = sp.confidence if sp else 0.0
             is_fixture = sp.is_fixture if sp else None
-            # 검출은 안 버린다(사람이 FiftyOne 에서 발라냄). needs_review = 저신뢰·필드누락·비픽스처.
-            # 신뢰도 바는 conf_min(검출 임계값) 과 분리한 고정값 — 검출 공격적으로 해도 검수가 헐거워지지 않게.
-            needs = conf < NEEDS_REVIEW_CONF or not model or not diameter or is_fixture is False
+            # needs_review = 저신뢰·모델없음·비픽스처. 지름/길이 빈칸은 '의도된 것'이라 조건에서 뺀다.
+            needs = conf < NEEDS_REVIEW_CONF or not model or is_fixture is False
             dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
                                            "catalog", chash, "png")
             if not dst.exists():
