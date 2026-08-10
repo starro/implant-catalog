@@ -207,7 +207,6 @@
       </div>
       <div class="row">
         <div><div class="label">검출 임계값 <span>(낮을수록 더 검출)</span></div><input bind:value={edit.conf} /></div>
-        <div><div class="label">dpi</div><input bind:value={edit.dpi} /></div>
         <div><div class="label">페이지</div><input bind:value={edit.pages} placeholder="예: 12-26, 30" /></div>
       </div>
       <div class="label">메모</div>
