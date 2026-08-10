@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS image (          -- 이미지 1장 = content_hash 1�
   reviewed_at  TEXT,
   stage        TEXT NOT NULL DEFAULT 'review',    -- review | training | rejected
   rel_path     TEXT NOT NULL,
+  is_fixture   INTEGER,
+  diameter     TEXT,
+  diameter_src TEXT,
+  needs_review INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_image_stage ON image(stage, review_state);

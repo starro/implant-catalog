@@ -29,11 +29,23 @@ def connect() -> sqlite3.Connection:
     return cx
 
 
+_NEW_IMAGE_COLS = {
+    "is_fixture": "INTEGER",
+    "diameter": "TEXT",
+    "diameter_src": "TEXT",
+    "needs_review": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
 def migrate() -> None:
-    """schema.sql 을 그대로 실행. 전부 IF NOT EXISTS 라 멱등."""
+    """schema.sql(멱등 CREATE) 실행 후, 기존 image 테이블에 없는 새 컬럼을 ALTER 로 채운다."""
     cx = connect()
     try:
         cx.executescript(SCHEMA.read_text(encoding="utf-8"))
+        have = {r["name"] for r in cx.execute("PRAGMA table_info(image)").fetchall()}
+        for col, decl in _NEW_IMAGE_COLS.items():
+            if col not in have:
+                cx.execute(f"ALTER TABLE image ADD COLUMN {col} {decl}")
     finally:
         cx.close()
 

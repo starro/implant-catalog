@@ -38,3 +38,15 @@ def test_wal_and_foreign_keys_enabled(data_root):
     with conn.session() as cx:
         assert cx.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
         assert cx.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+def test_migrate_adds_new_image_columns(tmp_path, monkeypatch):
+    from drheri_pipeline import storage
+    from drheri_pipeline.db import conn
+    monkeypatch.setattr(storage, "DATA_ROOT", tmp_path)
+    conn.migrate()
+    conn.migrate()   # 멱등 — 두 번 호출해도 예외 없음
+    cx = conn.connect()
+    cols = {r["name"] for r in cx.execute("PRAGMA table_info(image)").fetchall()}
+    cx.close()
+    assert {"is_fixture", "diameter", "diameter_src", "needs_review"} <= cols
