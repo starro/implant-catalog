@@ -64,30 +64,44 @@ def _record(records: list[dict], document_id: int, run_id: int) -> int:
     return len(records)
 
 
+def _set_running(run_id: int) -> None:
+    with conn.session() as cx:
+        cx.execute("UPDATE run SET status='RUNNING' WHERE id=?", (run_id,))
+
+
+def _finalize_success(run_id: int, doc_id: int, log) -> int:
+    """엔진 성공 후 동기 후처리(스레드에서 실행) — cp·manifest 누적·DB 기록·FiftyOne 등록."""
+    prior = storage.MANIFEST.read_text(encoding="utf-8") if storage.MANIFEST.exists() else ""
+    records = _read_container_manifest(run_id)
+    subprocess.run(cp_cmd(run_id), check=True)          # 크롭 병합(+ manifest 는 이번 런 것으로 덮임)
+    storage.MANIFEST.write_text(prior, encoding="utf-8")  # cp 가 덮은 것 되돌리고
+    storage.append_manifest(records)                    # 이번 런 레코드 누적 append
+    extracted = _record(records, doc_id, run_id)
+    register_prelabeled(records, log=log)
+    return extracted
+
+
+def _finish(run_id: int, status: str, extracted: int, error: str | None) -> None:
+    with conn.session() as cx:
+        writes.finish_run(cx, run_id, status, extracted, error)
+
+
 async def run_engine(doc_id: int, run_id: int, pdf: str, brand: str, pages: str,
                      dpi: int, conf_min: float, log=print) -> None:
     async with _run_lock:
-        with conn.session() as cx:
-            cx.execute("UPDATE run SET status='RUNNING' WHERE id=?", (run_id,))
+        await asyncio.to_thread(_set_running, run_id)
         status, extracted, error = "SUCCESS", 0, None
         try:
             proc = await asyncio.create_subprocess_exec(*exec_cmd(run_id, pdf, brand, pages, dpi, conf_min))
             rc = await proc.wait()
             if rc != 0:
                 raise RuntimeError(f"engine exit {rc}")
-            prior = storage.MANIFEST.read_text(encoding="utf-8") if storage.MANIFEST.exists() else ""
-            records = _read_container_manifest(run_id)
-            subprocess.run(cp_cmd(run_id), check=True)          # 크롭 병합(+ manifest 는 이번 런 것으로 덮임)
-            storage.MANIFEST.write_text(prior, encoding="utf-8")  # cp 가 덮은 것 되돌리고
-            storage.append_manifest(records)                    # 이번 런 레코드 누적 append
-            extracted = _record(records, doc_id, run_id)
-            register_prelabeled(records, log=log)
+            extracted = await asyncio.to_thread(_finalize_success, run_id, doc_id, log)
         except Exception as e:  # noqa: BLE001
             status, error = "FAILURE", f"{e.__class__.__name__}: {e}"
         finally:
-            subprocess.run(rm_cmd(run_id), check=False)   # 성공/실패 무관 즉시 정리
-        with conn.session() as cx:
-            writes.finish_run(cx, run_id, status, extracted, error)
+            await asyncio.to_thread(subprocess.run, rm_cmd(run_id), check=False)   # 성공/실패 무관 즉시 정리
+        await asyncio.to_thread(_finish, run_id, status, extracted, error)
         broadcaster.publish("run.finished", {
             "ui_run_id": run_id, "document_id": doc_id, "status": status,
             "extracted": extracted, "error": error})

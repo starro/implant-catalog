@@ -85,6 +85,18 @@ def finish_run(cx: sqlite3.Connection, run_id: int, status: str,
                (status, int(extracted), error, _now(), run_id))
 
 
+def reconcile_interrupted_runs(cx: sqlite3.Connection) -> int:
+    """서버(uvicorn) 재시작 등으로 소유 프로세스가 사라진 QUEUED/RUNNING 런을
+    FAILURE 로 정리한다. extracted 는 건드리지 않는다(그때까지의 값을 보존).
+    """
+    cur = cx.execute(
+        "UPDATE run SET status='FAILURE', error='interrupted (server restart)', finished_at=? "
+        "WHERE status IN ('QUEUED','RUNNING')",
+        (_now(),),
+    )
+    return cur.rowcount
+
+
 def record_image(cx: sqlite3.Connection, rec: dict, document_id: int,
                  run_id: int | None) -> None:
     """수집 레코드 1건을 image + image_origin 에 기록. 재수집해도 부풀지 않는다.
