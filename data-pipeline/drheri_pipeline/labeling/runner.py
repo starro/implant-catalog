@@ -16,6 +16,10 @@ from .partnum import parse_length
 from .geom import diameter_for_boxes
 from .fiftyone_writer import register_prelabeled
 
+# needs_review(사람 검수 필요) 판정용 VLM 신뢰도 바 — 검출 임계값(conf_min)과 분리한 고정값.
+# conf_min 은 이제 GDINO 검출 민감도(낮을수록 더 검출)이고, 이건 라벨 신뢰도가 낮은 크롭을 거른다.
+NEEDS_REVIEW_CONF = 0.5
+
 
 @dataclass
 class RunSummary:
@@ -38,7 +42,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
     페이지 단위 예외는 격리해 한 페이지 실패가 전체를 멈추지 않게 한다(스펙 §8).
     """
     try:
-        boxes = detect_fixtures(page.image)
+        boxes = detect_fixtures(page.image, threshold=conf_min)   # conf_min = GDINO 검출 임계값
         if not boxes:
             return []
         # 박스를 읽기순서(위→아래, 좌→우)로 정렬 후 번호 매김 — 표 읽는 순서와 맞아 VLM 정렬이 쉬워진다
@@ -68,7 +72,8 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             conf = sp.confidence if sp else 0.0
             is_fixture = sp.is_fixture if sp else None
             # 검출은 안 버린다(사람이 FiftyOne 에서 발라냄). needs_review = 저신뢰·필드누락·비픽스처.
-            needs = conf < conf_min or not model or not diameter or is_fixture is False
+            # 신뢰도 바는 conf_min(검출 임계값) 과 분리한 고정값 — 검출 공격적으로 해도 검수가 헐거워지지 않게.
+            needs = conf < NEEDS_REVIEW_CONF or not model or not diameter or is_fixture is False
             dst = storage.stage_image_path("review", brand, "_unknown", "_unknown",
                                            "catalog", chash, "png")
             if not dst.exists():

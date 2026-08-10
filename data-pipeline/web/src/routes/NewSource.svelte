@@ -216,9 +216,9 @@
     <div class="label">이름 <span>(비우면 주소의 파일명)</span></div>
     <input bind:value={form.name} />
 
-    <div class="label">기본 수집 설정</div>
+    <div class="label">기본 수집 설정 <span>(검출 임계값 = 낮을수록 더 검출)</span></div>
     <div class="row">
-      <input bind:value={form.conf} placeholder="conf" />
+      <input bind:value={form.conf} placeholder="검출 임계값 (예: 0.3)" />
       <input bind:value={form.dpi} placeholder="dpi" />
       <input bind:value={form.pages} placeholder="페이지 예: 12-26, 30 (비우면 전체)" />
     </div>
