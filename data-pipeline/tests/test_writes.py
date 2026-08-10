@@ -59,6 +59,23 @@ def test_record_image_is_idempotent_and_links_origin(data_root):
     assert orgs == 1
 
 
+def test_record_image_persists_specs(data_root):
+    # 지름/길이/코드가 image 테이블에 저장되어야 export(jsonl=dict(r))로 흐른다
+    rec = {
+        "content_hash": "s1", "path": "review/x/s1.png", "brand": "Hiossen",
+        "series": "_unknown", "surface": None, "model": "ETIII NH", "modality": "catalog",
+        "diameter": "4.5", "diameter_src": "vlm_mark", "length": "7", "length_src": "vlm_mark",
+        "part_number": "ET3R4507B", "part_number_src": "vlm_mark",
+        "is_fixture": True, "page_no": 3, "bbox": [1, 2, 3, 4],
+    }
+    with conn.session() as cx:
+        doc = _doc(cx)
+        writes.record_image(cx, rec, doc, None)
+        row = cx.execute("SELECT * FROM image WHERE content_hash='s1'").fetchone()
+    assert row["diameter"] == "4.5" and row["length"] == "7"
+    assert row["length_src"] == "vlm_mark" and row["part_number"] == "ET3R4507B"
+
+
 def test_same_image_from_two_documents_has_two_origins(data_root):
     rec = {"content_hash": "h1", "path": "review/x/h1.png", "brand": "Osstem",
            "series": "_unknown", "surface": None, "model": "_unknown",

@@ -30,6 +30,10 @@ from drheri_pipeline.taxonomy import normalize_brand
 
 DATASET = "drheri"
 LABEL_FIELDS = ("brand", "series", "surface", "model")
+# 스펙 필드도 사람이 FiftyOne 에서 고칠 수 있어야 하고, 그 값이 DB→export 까지 흘러야 한다.
+# 지름·길이는 필수(없으면 null), 코드는 옵션. 승급 게이트에는 넣지 않는다(null 허용).
+SPEC_FIELDS = ("diameter", "length", "part_number")
+EDIT_FIELDS = (*LABEL_FIELDS, *SPEC_FIELDS)
 
 
 def _now() -> str:
@@ -59,7 +63,7 @@ def read_review_state() -> list[dict]:
         return []
     ds = fo.load_dataset(DATASET)
     schema = ds.get_field_schema()
-    wanted = ["content_hash", "filepath", "stage", *LABEL_FIELDS]
+    wanted = ["content_hash", "filepath", "stage", *EDIT_FIELDS]
     present = [f for f in wanted if f in schema]
     out = []
     for s in ds.select_fields(present):
@@ -68,7 +72,7 @@ def read_review_state() -> list[dict]:
             "tags": list(s.tags or []),
             "filepath": s["filepath"] if "filepath" in present else None,
             "stage": s["stage"] if "stage" in present else None,
-            **{f: (s[f] if f in present else None) for f in LABEL_FIELDS},
+            **{f: (s[f] if f in present else None) for f in EDIT_FIELDS},
         })
     return out
 
@@ -212,9 +216,9 @@ def run_sync() -> dict:
             if not s:
                 continue
 
-            # 1) 라벨 반영 (사람이 고친 값이 우선)
+            # 1) 라벨 + 스펙 반영 (사람이 고친 값이 우선). 지름/길이/코드도 여기서 DB 로 흘러간다.
             labels = {}
-            for f in LABEL_FIELDS:
+            for f in EDIT_FIELDS:
                 v = s.get(f)
                 if not _blank(v):
                     labels[f] = normalize_brand(v) if f == "brand" else str(v).strip()

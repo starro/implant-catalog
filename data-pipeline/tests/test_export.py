@@ -12,9 +12,9 @@ def _seed(cx):
         default_pages="", default_series="_unknown", memo="")
     cx.execute(
         """INSERT INTO image (content_hash, ext, brand, series, surface, model, modality,
-                              review_state, stage, rel_path, created_at)
+                              review_state, stage, rel_path, created_at, diameter, length)
            VALUES ('t1','png','Osstem','TSIII','SA','TSIII4010S','catalog',
-                   'kept','training','training/a/t1.png','2026-07-20T00:00:00+00:00')""")
+                   'kept','training','training/a/t1.png','2026-07-20T00:00:00+00:00','4.0','10')""")
     cx.execute(
         """INSERT INTO image (content_hash, ext, brand, series, model, modality,
                               review_state, stage, rel_path, created_at)
@@ -32,11 +32,13 @@ def test_export_writes_only_training_rows_with_dgx_labels(data_root):
     assert out["rows"] == 1
 
     tsv = (storage.DATA_ROOT / out["labels_tsv"]).read_text(encoding="utf-8").splitlines()
-    assert tsv[0] == "brand\tseries\tmodel\trel_path"
-    assert tsv[1] == "OSSTEM IMPLANT\tTSIII SA\tTSIII4010S\ta/t1.png"   # 정규화 + series 합성
+    assert tsv[0] == "brand\tseries\tmodel\tdiameter\tlength\trel_path"
+    # 정규화 + series 합성 + 지름/길이 포함
+    assert tsv[1] == "OSSTEM IMPLANT\tTSIII SA\tTSIII4010S\t4.0\t10\ta/t1.png"
 
     lines = (storage.DATA_ROOT / out["manifest_jsonl"]).read_text(encoding="utf-8").splitlines()
-    assert json.loads(lines[0])["content_hash"] == "t1"
+    rec = json.loads(lines[0])
+    assert rec["content_hash"] == "t1" and rec["diameter"] == "4.0" and rec["length"] == "10"
 
 
 def test_class_distribution_counts_training_only(data_root):

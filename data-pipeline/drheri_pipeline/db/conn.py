@@ -33,6 +33,10 @@ _NEW_IMAGE_COLS = {
     "is_fixture": "INTEGER",
     "diameter": "TEXT",
     "diameter_src": "TEXT",
+    "length": "TEXT",
+    "length_src": "TEXT",
+    "part_number": "TEXT",
+    "part_number_src": "TEXT",
     "needs_review": "INTEGER NOT NULL DEFAULT 0",
 }
 

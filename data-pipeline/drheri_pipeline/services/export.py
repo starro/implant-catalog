@@ -39,10 +39,13 @@ def export_all() -> dict:
     with conn.session() as cx, \
             tsv_path.open("w", encoding="utf-8") as tsv, \
             jsonl_path.open("w", encoding="utf-8") as jl:
-        tsv.write("brand\tseries\tmodel\trel_path\n")
+        # 지름·길이는 필수 스펙 → tsv 에 컬럼으로 포함(없으면 빈칸). 코드는 jsonl 에만(옵션).
+        tsv.write("brand\tseries\tmodel\tdiameter\tlength\trel_path\n")
         for r in cx.execute(_TRAINING).fetchall():
             brand, series, model, rel = _dgx_row(r)
-            tsv.write(f"{brand}\t{series}\t{model}\t{rel}\n")
+            dia = r["diameter"] or ""
+            length = r["length"] or ""
+            tsv.write(f"{brand}\t{series}\t{model}\t{dia}\t{length}\t{rel}\n")
             jl.write(json.dumps({**dict(r), "dgx_brand": brand, "dgx_series": series},
                                 ensure_ascii=False) + "\n")
             rows += 1

@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS image (          -- 이미지 1장 = content_hash 1�
   is_fixture   INTEGER,
   diameter     TEXT,
   diameter_src TEXT,
+  length       TEXT,                             -- 길이(mm). 필수 스펙(없으면 null, 사람이 라벨)
+  length_src   TEXT,                             -- 값 출처: vlm_mark | text | human
+  part_number  TEXT,                             -- 주문코드(옵션)
+  part_number_src TEXT,
   needs_review INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL
 );

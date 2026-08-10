@@ -74,6 +74,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             dia_list = [s.diameter for s in specs]
             dia_src_list = ["vlm_mark" if s.diameter else None for s in specs]
             len_list = [s.length for s in specs]
+            len_src_list = ["vlm_mark" if s.length else None for s in specs]
             part_list = [s.part_number for s in specs]
             part_src_list = ["vlm_mark" if s.part_number else None for s in specs]
         else:
@@ -84,6 +85,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             dia_list = [geom_dias[i] if i < len(geom_dias) else None for i in range(n)]
             dia_src_list = ["geom" if d else None for d in dia_list]
             len_list = [len_lists[i] if i < len(len_lists) else None for i in range(n)]
+            len_src_list = ["text" if l else None for l in len_list]
             part_list = [",".join(code_lists[i]) if i < len(code_lists) and code_lists[i] else None
                          for i in range(n)]
             part_src_list = ["text" if p else None for p in part_list]
@@ -117,6 +119,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
             part_number = part_list[i]
             part_number_src = part_src_list[i]
             length = len_list[i]
+            length_src = len_src_list[i]
             conf = confs[i]
             is_fixture = is_fix[i]
             # needs_review = 저신뢰·모델없음·비픽스처. 지름/길이 빈칸은 '의도된 것'이라 조건에서 뺀다.
@@ -129,6 +132,7 @@ def _process_page(page, brand, pdf_url, conf_min, log) -> list[dict]:
                 "content_hash": chash, "path": storage.rel(dst),
                 "stage": "review", "status": "review",
                 "brand": brand, "model": model, "diameter": diameter, "length": length,
+                "length_src": length_src,
                 "part_number": part_number, "part_number_src": part_number_src,
                 "ai_confidence": round(conf, 3), "evidence": evids[i] if i < len(evids) else "",
                 "is_fixture": is_fixture, "diameter_src": diameter_src,
