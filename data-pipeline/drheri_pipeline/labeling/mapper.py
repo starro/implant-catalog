@@ -15,23 +15,28 @@ import httpx
 
 _URL = "http://127.0.0.1:8000/v1/chat/completions"
 
-_SYS = ("You label dental implant pages. Return ONLY a JSON array, no prose. The image has "
-        "red numbered boxes; each box outlines ONE rendered object. LOOK AT THE OBJECT INSIDE "
-        "each numbered box and match it to ITS OWN entry on the page — read the size printed "
-        "next to that box or its own column in the table. Different boxes usually show "
-        "DIFFERENT diameters (each render represents one diameter); do NOT just list the "
-        "table's rows in order. Also judge is_fixture: false when the boxed object is not "
-        "actually an implant fixture (a diagram, tool, x-ray, or illustration).")
-_PROMPT = ('There are exactly {n} numbered red boxes (0..{last}). Return a JSON array of '
-           'EXACTLY {n} objects, one per box, using that box number as "index" (0-based). '
-           'Each render usually represents one DIAMETER (a family of lengths), so report the '
-           'diameter for each box; leave length null unless that box clearly maps to a single '
-           'length. Include every box (use nulls if unsure). Each object: '
+_SYS = ("You identify dental implant fixtures on a catalog OR manual page. Return ONLY a JSON "
+        "array, no prose. You get the page IMAGE (red numbered boxes mark detected objects) and "
+        "the page TEXT. Use ALL available page context to label each numbered box — a heading, a "
+        "caption, a size printed next to a render, a spec table IF one exists, or surrounding "
+        "prose. The page MAY OR MAY NOT have a spec table; do NOT assume one — read whatever "
+        "context is nearest and most relevant to each box. Look at the object INSIDE each box; "
+        "different boxes usually show different diameters. Also judge is_fixture: false when the "
+        "boxed object is not actually an implant fixture (a diagram, tool, x-ray, or illustration).")
+_PROMPT = ('There are exactly {n} numbered red boxes (0..{last}). Box vertical positions '
+           '(top=0%, bottom=100%): {positions}. A render is usually placed at the SAME height '
+           'as its own group of rows in a table — use each box\'s vertical position to find the '
+           'rows at that height and read THAT group\'s value. Return a JSON array of EXACTLY {n} '
+           'objects, one per box (index 0-based). For each box give what the context states: '
+           'model/series (often in a heading/title), diameter (each render usually represents '
+           'one diameter family), length (null — a render spans many lengths — unless the box '
+           'clearly maps to a single length), part_number. Use null for anything not stated; do '
+           'NOT just list table rows top-to-bottom. Each object: '
            '{{"index":int,"is_fixture":bool,"model":str|null,"diameter":str|null,'
            '"length":str|null,"part_number":str|null,"confidence":0..1,"evidence":str}}. '
-           'is_fixture=false for non-fixtures (diagram/tool/x-ray/illustration). Give an '
-           'HONEST confidence 0..1 — do NOT always answer 1; lower it when the box is not a '
-           'clear fixture or the diameter is uncertain. Brand is {brand}. Page text:\n{page_text}')
+           'is_fixture=false for non-fixtures (diagram/tool/x-ray/illustration). Give an HONEST '
+           'confidence 0..1 — do NOT always answer 1; lower it when the box is not a clear '
+           'fixture or the label is uncertain. Brand is {brand}. Page text:\n{page_text}')
 
 
 @dataclass
@@ -110,8 +115,11 @@ def map_specs(marked_view, master, boxes, brand, page_text, *,
               url: str = _URL, model_name: str = "qwen3vl") -> list[BoxSpec]:
     if not boxes:
         return []
-    text = _PROMPT.format(n=len(boxes), last=len(boxes) - 1, brand=brand,
-                          page_text=(page_text or "")[:2000])
+    h = getattr(marked_view, "height", 0) or 1
+    positions = ", ".join(
+        f"box {i}={round((b.xyxy[1] + b.xyxy[3]) / 2 / h * 100)}%" for i, b in enumerate(boxes))
+    text = _PROMPT.format(n=len(boxes), last=len(boxes) - 1, positions=positions,
+                          brand=brand, page_text=(page_text or "")[:2000])
     try:
         rows = _call(marked_view, text, url, model_name)
     except Exception:
