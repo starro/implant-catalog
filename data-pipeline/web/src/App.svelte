@@ -5,6 +5,7 @@
   import { route } from './lib/router.svelte.js';
   import { toast } from './lib/stores.svelte.js';
   import Toast from './components/Toast.svelte';
+  import EngineControl from './components/EngineControl.svelte';
   import Sources from './routes/Sources.svelte';
   import SourceDetail from './routes/SourceDetail.svelte';
   import Overview from './routes/Overview.svelte';
@@ -40,6 +41,7 @@
 <nav class="top">
   <b>Dr.HERi 데이터 파이프라인</b>
   <div class="right">
+    <EngineControl />
     <a href="http://58.229.105.3:5151" target="_blank" rel="noreferrer">FiftyOne ↗</a>
     <button class="primary" onclick={sync} disabled={syncing}>
       {syncing ? '반영 중…' : '검수결과 반영'}

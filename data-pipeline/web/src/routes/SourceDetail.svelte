@@ -3,8 +3,9 @@
   import FunnelBar from '../components/FunnelBar.svelte';
   import RunTable from '../components/RunTable.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
+  import { ENGINE_LABELS } from '../components/engine_labels.js';
   import { dateTime } from '../lib/format.js';
-  import { liveEvents, loadSources, toast } from '../lib/stores.svelte.js';
+  import { engine, liveEvents, loadSources, toast } from '../lib/stores.svelte.js';
   import { navigate } from '../lib/router.svelte.js';
 
   let { id } = $props();
@@ -147,7 +148,10 @@
   </div>
 
   <div class="actions">
-    <button class="primary" onclick={collect} disabled={busy}>수집 실행</button>
+    <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready'}>수집 실행</button>
+    {#if engine.status !== 'ready'}
+      <span class="label">엔진이 준비되면 수집할 수 있습니다 (현재: {ENGINE_LABELS[engine.status] ?? engine.status})</span>
+    {/if}
     <button onclick={checkStatus} disabled={busy}>상태 확인</button>
     {#if doc.funnel.extracted > 0}
       <a class="btn" href="{settings.FIFTYONE_URL}/datasets/drheri?view=doc-{doc.id}"
