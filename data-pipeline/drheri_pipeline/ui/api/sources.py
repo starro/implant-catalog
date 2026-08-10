@@ -10,6 +10,7 @@ from starlette.routing import Route
 
 from drheri_pipeline.db import conn, queries, writes
 from drheri_pipeline.services import purge
+from drheri_pipeline.ui import runner_exec
 from drheri_pipeline.ui.envelope import ApiError, ok, read_json
 
 _UPDATE_MAP = {"name": "name", "memo": "memo", "conf": "default_conf",
@@ -114,8 +115,11 @@ async def archive_source(request: Request):
 
 
 async def reset_source(request: Request):
-    """수집 초기화 — 문서는 유지하고 수집 결과(이미지·런·FiftyOne 샘플·파일)만 지운다."""
+    """수집 초기화 — 문서는 유지하고 수집 결과(이미지·런·FiftyOne 샘플·파일)만 지운다.
+
+    진행 중인 수집이 있으면 먼저 컨테이너 프로세스를 죽인다(안 죽이면 orphan 이 계속 돌며 GPU 사용)."""
     doc_id = request.path_params["doc_id"]
+    await run_in_threadpool(runner_exec.kill_running)   # 진행 중 수집 중단(orphan 방지)
     result = await run_in_threadpool(purge.reset_document, doc_id)
     if result is None:
         raise ApiError("not_found", "문서를 찾을 수 없습니다", status=404)

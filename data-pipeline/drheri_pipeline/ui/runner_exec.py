@@ -17,6 +17,27 @@ CONTAINER = os.getenv("ENGINE_CONTAINER", "vllm-shlee")
 ENGINE_PYTHONPATH = "/engine"
 
 _run_lock = asyncio.Lock()
+_cancelled: set[int] = set()   # 중단 요청된 run_id — run_engine 이 이 값을 보고 CANCELED 로 마감
+
+
+def kill_running() -> bool:
+    """컨테이너 안에서 도는 수집(cli) 프로세스를 강제 종료. 한 번에 1런이라 모듈명으로 죽인다.
+
+    docker exec 서브프로세스(클라이언트)를 죽여도 컨테이너 안 프로세스는 orphan 으로 살아남기에,
+    컨테이너 내부에서 직접 pkill 한다. 반환: 하나라도 죽였으면 True(pkill rc 0), 대상 없으면 False.
+    docker 부재 등 실행 자체 실패는 False 로 흡수(중단/초기화가 이걸로 죽지 않게)."""
+    try:
+        r = subprocess.run(["docker", "exec", CONTAINER, "pkill", "-f",
+                            "drheri_pipeline.labeling.cli"], capture_output=True)
+        return r.returncode == 0
+    except Exception:   # noqa: BLE001 — docker 미설치/실행 실패
+        return False
+
+
+def request_cancel(run_id: int) -> bool:
+    """수집 중단 — run_engine 이 CANCELED 로 마감하도록 표시하고 컨테이너 프로세스를 죽인다."""
+    _cancelled.add(int(run_id))
+    return kill_running()
 
 
 def tmp_dir(run_id: int) -> str:
@@ -128,13 +149,17 @@ async def run_engine(doc_id: int, run_id: int, pdf: str, brand: str, pages: str,
             engine_pdf = await asyncio.to_thread(_prepare_pdf, run_id, pdf)   # 업로드 파일이면 컨테이너 주입
             proc = await asyncio.create_subprocess_exec(*exec_cmd(run_id, engine_pdf, brand, pages, dpi, conf_min))
             rc = await proc.wait()
-            if rc != 0:
+            if rc == 0:
+                extracted = await asyncio.to_thread(_finalize_success, run_id, doc_id, log)
+            elif run_id in _cancelled:
+                status = "CANCELED"          # 사용자가 중단 — 실패 아님
+            else:
                 raise RuntimeError(f"engine exit {rc}")
-            extracted = await asyncio.to_thread(_finalize_success, run_id, doc_id, log)
         except Exception as e:  # noqa: BLE001
             status, error = "FAILURE", f"{e.__class__.__name__}: {e}"
         finally:
-            await asyncio.to_thread(subprocess.run, rm_cmd(run_id), check=False)   # 성공/실패 무관 즉시 정리
+            _cancelled.discard(run_id)
+            await asyncio.to_thread(subprocess.run, rm_cmd(run_id), check=False)   # 성공/실패/중단 무관 즉시 정리
         await asyncio.to_thread(_finish, run_id, status, extracted, error)
         broadcaster.publish("run.finished", {
             "ui_run_id": run_id, "document_id": doc_id, "status": status,

@@ -43,6 +43,25 @@ async def collect(request: Request):
     return ok({"ui_run_id": run_id})
 
 
+async def cancel_collect(request: Request):
+    """진행 중인 수집을 중단 — 컨테이너 안 프로세스까지 죽인다(orphan 방지). 멱등."""
+    doc_id = request.path_params["doc_id"]
+
+    def _running():
+        with conn.session() as cx:
+            row = cx.execute(
+                "SELECT id FROM run WHERE document_id=? AND status IN ('QUEUED','RUNNING') "
+                "ORDER BY started_at DESC LIMIT 1", (doc_id,)).fetchone()
+            return row["id"] if row else None
+
+    run_id = await run_in_threadpool(_running)
+    if run_id is not None:
+        killed = await run_in_threadpool(runner_exec.request_cancel, run_id)   # CANCELED 마감 + kill
+    else:
+        killed = await run_in_threadpool(runner_exec.kill_running)             # orphan 정리
+    return ok({"ui_run_id": run_id, "killed": killed})
+
+
 async def latest_run(request: Request):
     def _get():
         with conn.session() as cx:
@@ -87,6 +106,7 @@ async def events(request: Request):
 
 routes = [
     Route("/api/sources/{doc_id:int}/collect", collect, methods=["POST"]),
+    Route("/api/sources/{doc_id:int}/collect/cancel", cancel_collect, methods=["POST"]),
     Route("/api/sources/{doc_id:int}/runs/latest", latest_run, methods=["GET"]),
     Route("/api/sources/{doc_id:int}/runs/latest/progress", latest_progress, methods=["GET"]),
     Route("/api/events", events, methods=["GET"]),

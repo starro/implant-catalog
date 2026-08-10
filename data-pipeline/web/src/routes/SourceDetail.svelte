@@ -81,6 +81,20 @@
     }
   }
 
+  async function cancelCollect() {
+    if (!confirm('진행 중인 수집을 중단할까요? (컨테이너 프로세스까지 종료)')) return;
+    busy = true;
+    try {
+      const r = await post(`/api/sources/${id}/collect/cancel`, {});
+      toast(r.killed ? '수집을 중단했습니다.' : '진행 중인 프로세스가 없었습니다.', 'info');
+      await load();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   // '이 문서만 보기' — 서버에서 세션 뷰를 doc-N 으로 확정한 뒤 FiftyOne 탭을 연다.
   // (URL ?view= 는 단일세션에서 이전 필터와 충돌 → 서버 session.view 세팅이 확실)
   async function viewInFiftyone() {
@@ -186,7 +200,10 @@
   </div>
 
   <div class="actions">
-    <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready'}>수집 실행</button>
+    <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready' || running}>수집 실행</button>
+    {#if running}
+      <button onclick={cancelCollect} disabled={busy} class="danger">수집 중단</button>
+    {/if}
     {#if engine.status !== 'ready'}
       <span class="label">엔진이 준비되면 수집할 수 있습니다 (현재: {ENGINE_LABELS[engine.status] ?? engine.status})</span>
     {/if}
