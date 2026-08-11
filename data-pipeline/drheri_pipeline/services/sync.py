@@ -133,10 +133,13 @@ def delete_fiftyone_samples(hashes: list[str]) -> int:
 
 
 def is_promotable(img: dict) -> bool:
-    """kept + brand/series/model 3종 완비면 training 승급 대상."""
+    """kept + brand/model 완비면 training 승급 대상.
+
+    series 는 임플란트마다 분류 하이어라키가 달라 필수에서 뺀다(카탈로그 플로우는 model 이
+    시리즈 역할을 겸함). 비면 경로/­export 에서 _unknown 으로 생략된다."""
     if img.get("review_state") != "kept":
         return False
-    return not any(_blank(img.get(f)) for f in ("brand", "series", "model"))
+    return not any(_blank(img.get(f)) for f in ("brand", "model"))
 
 
 def _move(src: Path, dst: Path) -> None:

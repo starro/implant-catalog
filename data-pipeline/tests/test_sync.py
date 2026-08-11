@@ -24,13 +24,21 @@ def _seed_images(data_root):
     return doc
 
 
-def test_is_promotable_requires_all_three_labels():
+def test_is_promotable_requires_brand_and_model():
+    # series 는 필수 아님 — brand+model 만 완비되면 kept 는 승급 대상
     assert sync.is_promotable({"review_state": "kept", "brand": "Osstem",
-                               "series": "TSIII", "model": "TSIII4010S"}) is True
+                               "model": "TSIII4010S"}) is True
+    assert sync.is_promotable({"review_state": "kept", "brand": "Hiossen",
+                               "series": "_unknown", "model": "ETIII NH"}) is True
+    # model 없으면 제외
     assert sync.is_promotable({"review_state": "kept", "brand": "Osstem",
                                "series": "TSIII", "model": "_unknown"}) is False
+    # brand 없으면 제외
+    assert sync.is_promotable({"review_state": "kept", "brand": "_unknown",
+                               "model": "TSIII4010S"}) is False
+    # kept 아니면 제외
     assert sync.is_promotable({"review_state": "pending", "brand": "Osstem",
-                               "series": "TSIII", "model": "TSIII4010S"}) is False
+                               "model": "TSIII4010S"}) is False
 
 
 def test_run_sync_applies_tags_labels_and_promotion(data_root, monkeypatch):
