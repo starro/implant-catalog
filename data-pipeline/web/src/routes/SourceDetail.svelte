@@ -95,6 +95,18 @@
     }
   }
 
+  async function runSync() {
+    // 검수결과 반영(전역: FiftyOne keep/reject·라벨 → DB 반영 + training 승급). 결과 토스트는 SSE.
+    busy = true;
+    try {
+      await post('/api/sync');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   async function runExport() {
     // 학습데이터 내보내기(전역: training 승급분 전체 → labels.tsv + manifest.jsonl 생성)
     busy = true;
@@ -227,6 +239,7 @@
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
     <button onclick={archive}>보관</button>
+    <button onclick={runSync} disabled={busy}>검수결과 반영</button>
     <button onclick={runExport} disabled={busy}>DGX 내보내기 생성</button>
   </div>
 
