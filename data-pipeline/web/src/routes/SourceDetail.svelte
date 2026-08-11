@@ -204,8 +204,8 @@
     <section class="step">
       <div class="step-head"><span class="badge">1</span> 수집</div>
       <div class="step-body">
-        <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
         <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready' || running}>수집 실행</button>
+        <button class="soft-blue" onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
         {#if running}
           <button onclick={cancelCollect} disabled={busy} class="danger">수집 중단</button>
         {/if}
@@ -219,7 +219,7 @@
     <section class="step">
       <div class="step-head"><span class="badge">2</span> 검수 (FiftyOne)</div>
       <div class="step-body">
-        <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>수집확인(FiftyOne)</button>
+        <button class="soft-amber" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>수집확인(FiftyOne)</button>
         <button class="review" onclick={runSync} disabled={busy}>검수결과 반영</button>
       </div>
     </section>
@@ -303,4 +303,7 @@
   button.danger { color: var(--rejected); border-color: var(--rejected); }
   button.review { background: #d97706; border-color: #d97706; color: #fff; }
   button.train { background: var(--training); border-color: var(--training); color: #fff; }
+  /* 보조 버튼 — 단계 색의 소프트 톤(흰색 대신) */
+  button.soft-blue { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+  button.soft-amber { background: #fffbeb; border-color: #fcd34d; color: #b45309; }
 </style>
