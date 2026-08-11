@@ -9,9 +9,10 @@ from starlette.requests import Request
 from starlette.routing import Route
 
 from drheri_pipeline.db import conn, queries, writes
-from drheri_pipeline.services import purge
+from drheri_pipeline.services import export, purge, sync
 from drheri_pipeline.ui import runner_exec
 from drheri_pipeline.ui.envelope import ApiError, ok, read_json
+from drheri_pipeline.ui.events import broadcaster
 
 _UPDATE_MAP = {"name": "name", "memo": "memo", "conf": "default_conf",
                "dpi": "default_dpi", "pages": "default_pages", "series": "default_series"}
@@ -114,6 +115,22 @@ async def archive_source(request: Request):
     return ok({"id": doc_id})
 
 
+async def sync_source(request: Request):
+    """이 문서(PDF)의 검수결과만 반영 — FiftyOne keep/reject·라벨 → DB + training 승급."""
+    doc_id = request.path_params["doc_id"]
+    result = await run_in_threadpool(sync.run_sync, doc_id)
+    broadcaster.publish("sync.finished", result)
+    return ok(result)
+
+
+async def export_source(request: Request):
+    """이 문서(PDF)의 training 승급분만 export/doc-<id>/ 로 내보낸다."""
+    doc_id = request.path_params["doc_id"]
+    result = await run_in_threadpool(export.export_all, doc_id)
+    broadcaster.publish("export.finished", result)
+    return ok(result)
+
+
 async def reset_source(request: Request):
     """수집 초기화 — 문서는 유지하고 수집 결과(이미지·런·FiftyOne 샘플·파일)만 지운다.
 
@@ -154,4 +171,6 @@ routes = [
     Route("/api/sources/{doc_id:int}/update", update_source, methods=["POST"]),
     Route("/api/sources/{doc_id:int}/archive", archive_source, methods=["POST"]),
     Route("/api/sources/{doc_id:int}/reset", reset_source, methods=["POST"]),
+    Route("/api/sources/{doc_id:int}/sync", sync_source, methods=["POST"]),
+    Route("/api/sources/{doc_id:int}/export", export_source, methods=["POST"]),
 ]

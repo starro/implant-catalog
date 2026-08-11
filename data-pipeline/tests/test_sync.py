@@ -43,7 +43,7 @@ def test_is_promotable_requires_brand_and_model():
 
 def test_run_sync_applies_tags_labels_and_promotion(data_root, monkeypatch):
     doc = _seed_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "k1", "tags": ["keep"], "brand": "Osstem",
          "series": "TSIII", "surface": "SA", "model": "TSIII4010S"},
         {"content_hash": "k2", "tags": ["keep"], "brand": "Osstem",
@@ -77,7 +77,7 @@ def test_run_sync_applies_tags_labels_and_promotion(data_root, monkeypatch):
 
 def test_rejected_file_is_moved_not_deleted(data_root, monkeypatch):
     _seed_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "r1", "tags": ["reject"], "brand": "Osstem",
          "series": "_unknown", "surface": None, "model": "_unknown"}])
     monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
@@ -96,7 +96,7 @@ def test_rejected_sample_is_deleted_from_fiftyone(data_root, monkeypatch):
     """버림 처리된 것은 FiftyOne 에서 실제로 제거돼야 라벨링 뷰에서 사라진다.
     다만 DB 행·rejected/ 파일은 남아 복구 가능(파일 이동은 유지)."""
     _seed_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "k1", "tags": ["keep"], "brand": "Osstem",
          "series": "TSIII", "surface": "SA", "model": "TSIII4010S"},
         {"content_hash": "r1", "tags": ["reject"], "brand": "Osstem",
@@ -119,7 +119,7 @@ def test_rejected_sample_is_deleted_from_fiftyone(data_root, monkeypatch):
 
 def test_sync_log_is_recorded(data_root, monkeypatch):
     _seed_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [])
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[])
     monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
     sync.run_sync()
     with conn.session() as cx:
@@ -152,7 +152,7 @@ def test_sync_log_db_values_match_kept_rejected_promoted_distinctly(data_root, m
     뒤바뀌어 들어가도 (예: kept 자리에 rejected 값) 반드시 걸리도록 한다.
     """
     _seed_four_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "k1", "tags": ["keep"], "brand": "Osstem",
          "series": "TSIII", "surface": "SA", "model": "TSIII4010S"},
         {"content_hash": "k2", "tags": ["keep"], "brand": "Osstem",
@@ -192,7 +192,7 @@ def test_stale_fiftyone_filepath_is_retried_on_next_sync(data_root, monkeypatch)
         cx.execute("UPDATE image SET rel_path=? WHERE content_hash='k1'", (storage.rel(dst),))
 
     stale_filepath = str((storage.DATA_ROOT / "review" / "k1.png").resolve())
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "k1", "tags": [], "brand": "Osstem", "series": "TSIII",
          "surface": "SA", "model": "TSIII4010S", "filepath": stale_filepath, "stage": "review"}])
 
@@ -217,7 +217,7 @@ def test_un_reject_returns_stage_to_review_and_moves_file_back(data_root, monkey
     _seed_images(data_root)
 
     # 1차: r1 버림 처리
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "r1", "tags": ["reject"], "brand": "Osstem",
          "series": "_unknown", "surface": None, "model": "_unknown"}])
     monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
@@ -229,7 +229,7 @@ def test_un_reject_returns_stage_to_review_and_moves_file_back(data_root, monkey
     assert (storage.DATA_ROOT / "rejected" / "r1.png").exists()
 
     # 2차: FiftyOne 에서 keep 으로 오판 복구했지만 라벨은 여전히 불완전
-    monkeypatch.setattr(sync, "read_review_state", lambda: [
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[
         {"content_hash": "r1", "tags": ["keep"], "brand": "Osstem",
          "series": "_unknown", "surface": None, "model": "_unknown"}])
     sync.run_sync()
@@ -315,7 +315,7 @@ def test_run_sync_succeeds_even_if_saved_views_sync_fails(data_root, monkeypatch
 
     monkeypatch.setattr(fiftyone_saved_views, "sync_views", _boom)
     _seed_images(data_root)
-    monkeypatch.setattr(sync, "read_review_state", lambda: [])
+    monkeypatch.setattr(sync, "read_review_state", lambda *a:[])
     monkeypatch.setattr(sync, "push_stage_to_fiftyone", lambda moves: None)
 
     out = sync.run_sync()

@@ -29,9 +29,21 @@ def _dgx_row(r: sqlite3.Row) -> tuple[str, str, str, str]:
     return brand, series, model, rel
 
 
-def export_all() -> dict:
-    tsv_path = storage.DATA_ROOT / "training" / "labels.tsv"
-    jsonl_path = storage.DATA_ROOT / "export" / "manifest.jsonl"
+def export_all(doc_id: int | None = None) -> dict:
+    """training 승급분을 labels.tsv + manifest.jsonl 로 flatten.
+
+    doc_id 를 주면 그 문서(PDF)의 training 이미지만, export/doc-<id>/ 아래로 뽑는다(전역과 분리)."""
+    if doc_id is None:
+        query, params = _TRAINING, ()
+        out_dir = storage.DATA_ROOT / "export"
+        tsv_path = storage.DATA_ROOT / "training" / "labels.tsv"
+    else:
+        query = ("SELECT i.* FROM image i JOIN image_origin o ON o.content_hash = i.content_hash "
+                 "WHERE i.stage='training' AND o.document_id=? ORDER BY i.content_hash")
+        params = (doc_id,)
+        out_dir = storage.DATA_ROOT / "export" / f"doc-{int(doc_id)}"
+        tsv_path = out_dir / "labels.tsv"
+    jsonl_path = out_dir / "manifest.jsonl"
     tsv_path.parent.mkdir(parents=True, exist_ok=True)
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +53,7 @@ def export_all() -> dict:
             jsonl_path.open("w", encoding="utf-8") as jl:
         # 지름·길이는 필수 스펙 → tsv 에 컬럼으로 포함(없으면 빈칸). 코드는 jsonl 에만(옵션).
         tsv.write("brand\tseries\tmodel\tdiameter\tlength\trel_path\n")
-        for r in cx.execute(_TRAINING).fetchall():
+        for r in cx.execute(query, params).fetchall():
             brand, series, model, rel = _dgx_row(r)
             dia = r["diameter"] or ""
             length = r["length"] or ""

@@ -6,7 +6,6 @@
   import { ENGINE_LABELS } from '../components/engine_labels.js';
   import { dateTime, duration } from '../lib/format.js';
   import { engine, liveEvents, loadSources, toast } from '../lib/stores.svelte.js';
-  import { navigate } from '../lib/router.svelte.js';
 
   let { id } = $props();
 
@@ -96,10 +95,11 @@
   }
 
   async function runSync() {
-    // 검수결과 반영(전역: FiftyOne keep/reject·라벨 → DB 반영 + training 승급). 결과 토스트는 SSE.
+    // 이 문서(PDF)의 검수결과만 반영 → DB + training 승급. 결과 토스트는 SSE.
     busy = true;
     try {
-      await post('/api/sync');
+      await post(`/api/sources/${id}/sync`, {});
+      await load();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -108,10 +108,10 @@
   }
 
   async function runExport() {
-    // 학습데이터 내보내기(전역: training 승급분 전체 → labels.tsv + manifest.jsonl 생성)
+    // 이 문서의 training 승급분만 내보내기 → export/doc-<id>/labels.tsv + manifest.jsonl
     busy = true;
     try {
-      const r = await post('/api/export', {});
+      const r = await post(`/api/sources/${id}/export`, {});
       toast(`DGX 내보내기 생성 완료 — ${r.rows}행 (${r.labels_tsv})`, 'success');
     } catch (e) {
       toast(e.message, 'error');
@@ -154,17 +154,6 @@
       await load();
       await loadSources();
       toast('저장했습니다', 'success');
-    } catch (e) {
-      toast(e.message, 'error');
-    }
-  }
-
-  async function archive() {
-    if (!confirm('이 문서를 보관 처리할까요? 수집된 이미지와 이력은 남습니다.')) return;
-    try {
-      await post(`/api/sources/${id}/archive`);
-      await loadSources();
-      navigate('#/sources');
     } catch (e) {
       toast(e.message, 'error');
     }
@@ -236,9 +225,8 @@
     {#if doc.funnel.extracted > 0}
       <button class="btn" onclick={viewInFiftyone}>FiftyOne 에서 이 문서만 보기</button>
     {/if}
-    <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
+    <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
-    <button onclick={archive}>보관</button>
     <button onclick={runSync} disabled={busy}>검수결과 반영</button>
     <button onclick={runExport} disabled={busy}>DGX 내보내기 생성</button>
   </div>

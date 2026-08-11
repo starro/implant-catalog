@@ -44,8 +44,8 @@ def _blank(v) -> bool:
     return not v or str(v).strip() in ("", "_unknown")
 
 
-def read_review_state() -> list[dict]:
-    """FiftyOne 데이터셋에서 태그·라벨·현재 filepath/stage 를 읽어온다.
+def read_review_state(doc_id: int | None = None) -> list[dict]:
+    """FiftyOne 데이터셋에서 태그·라벨·현재 filepath/stage 를 읽어온다. doc_id 주면 그 문서만.
 
     filepath/stage 는 3단계에서 "DB 와 어긋난 것"을 판정하는 기준이 된다.
     미설치/데이터셋 없으면 빈 리스트.
@@ -65,8 +65,12 @@ def read_review_state() -> list[dict]:
     schema = ds.get_field_schema()
     wanted = ["content_hash", "filepath", "stage", *EDIT_FIELDS]
     present = [f for f in wanted if f in schema]
+    view = ds
+    if doc_id is not None and "document_id" in schema:   # 그 문서 샘플만
+        from fiftyone import ViewField as F
+        view = ds.match(F("document_id") == int(doc_id))
     out = []
-    for s in ds.select_fields(present):
+    for s in view.select_fields(present):
         out.append({
             "content_hash": s["content_hash"] if "content_hash" in present else None,
             "tags": list(s.tags or []),
@@ -202,9 +206,11 @@ def _compute_fiftyone_moves(samples: dict[str, dict]) -> dict[str, tuple[str, st
     return moves
 
 
-def run_sync() -> dict:
-    """검수결과 반영 + 승급. DB/파일이동/FiftyOne반영 3단계. 예외 대신 결과로 실패를 보고한다."""
-    samples = {s["content_hash"]: s for s in read_review_state()}
+def run_sync(doc_id: int | None = None) -> dict:
+    """검수결과 반영 + 승급. DB/파일이동/FiftyOne반영 3단계. 예외 대신 결과로 실패를 보고한다.
+
+    doc_id 를 주면 그 문서(PDF)의 검수결과만 반영한다 — 다른 단계도 samples 기준이라 자연히 스코프됨."""
+    samples = {s["content_hash"]: s for s in read_review_state(doc_id)}
     kept = rejected = promoted = 0
     prev_rel_path: dict[str, str] = {}
     now = _now()
