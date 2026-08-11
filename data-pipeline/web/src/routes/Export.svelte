@@ -43,7 +43,7 @@
 {#if dist}
   <p class="label">학습 이미지 {num(dist.total)}장</p>
   <div class="cols">
-    {#each [['브랜드', dist.brands], ['시리즈', dist.series], ['모델', dist.models]] as [title, rows] (title)}
+    {#each [['브랜드', dist.brands], ['모델', dist.models]] as [title, rows] (title)}
       <div>
         <h3>{title}</h3>
         <table>
