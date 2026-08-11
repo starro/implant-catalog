@@ -220,7 +220,7 @@
       <div class="step-head"><span class="badge">2</span> 검수 (FiftyOne)</div>
       <div class="step-body">
         <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>수집확인(FiftyOne)</button>
-        <button class="primary" onclick={runSync} disabled={busy}>검수결과 반영</button>
+        <button class="review" onclick={runSync} disabled={busy}>검수결과 반영</button>
       </div>
     </section>
 
@@ -287,6 +287,7 @@
   .badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
            border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px;
            font-weight: 700; flex: none; }
+  .step:nth-child(2) .badge { background: #d97706; }           /* 검수 — 앰버 */
   .step:nth-child(3) .badge { background: var(--training); }   /* 최종 산출(학습 라벨) */
   .step-body { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .step-body .hint { flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -300,5 +301,6 @@
   .memo { color: var(--muted); }
   .archived { color: var(--rejected); margin-left: 6px; }
   button.danger { color: var(--rejected); border-color: var(--rejected); }
+  button.review { background: #d97706; border-color: #d97706; color: #fff; }
   button.train { background: var(--training); border-color: var(--training); color: #fff; }
 </style>
