@@ -233,7 +233,7 @@
     <section class="step">
       <div class="step-head"><span class="badge">2</span> 검수 (FiftyOne)</div>
       <div class="step-body">
-        <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>이 문서만 보기</button>
+        <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>수집확인(FiftyOne)</button>
         <button onclick={runSync} disabled={busy}>검수결과 반영</button>
       </div>
     </section>
