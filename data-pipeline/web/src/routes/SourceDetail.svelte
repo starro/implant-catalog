@@ -131,19 +131,6 @@
     window.open(`${settings.FIFTYONE_URL}/datasets/drheri`, 'fiftyone');
   }
 
-  async function checkStatus() {
-    busy = true;
-    try {
-      const r = await get(`/api/sources/${id}/runs/latest`);
-      toast(`최근 수집 상태: ${r.status}`, 'info');
-      await load();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      busy = false;
-    }
-  }
-
   async function save() {
     try {
       await post(`/api/sources/${id}/update`, {
@@ -222,7 +209,6 @@
         {#if running}
           <button onclick={cancelCollect} disabled={busy} class="danger">수집 중단</button>
         {/if}
-        <button onclick={checkStatus} disabled={busy}>상태 확인</button>
         <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
         {#if engine.status !== 'ready'}
           <span class="hint">엔진 준비 후 수집 가능 (현재: {ENGINE_LABELS[engine.status] ?? engine.status})</span>
@@ -234,14 +220,14 @@
       <div class="step-head"><span class="badge">2</span> 검수 (FiftyOne)</div>
       <div class="step-body">
         <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>수집확인(FiftyOne)</button>
-        <button onclick={runSync} disabled={busy}>검수결과 반영</button>
+        <button class="primary" onclick={runSync} disabled={busy}>검수결과 반영</button>
       </div>
     </section>
 
     <section class="step">
       <div class="step-head"><span class="badge">3</span> 학습 라벨</div>
       <div class="step-body">
-        <button onclick={runExport} disabled={busy}>학습용 데이터 라벨 생성</button>
+        <button class="train" onclick={runExport} disabled={busy}>학습용 데이터 라벨 생성</button>
       </div>
     </section>
   </div>
@@ -314,4 +300,5 @@
   .memo { color: var(--muted); }
   .archived { color: var(--rejected); margin-left: 6px; }
   button.danger { color: var(--rejected); border-color: var(--rejected); }
+  button.train { background: var(--training); border-color: var(--training); color: #fff; }
 </style>
