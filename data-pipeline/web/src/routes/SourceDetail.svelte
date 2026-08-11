@@ -213,22 +213,37 @@
     {/if}
   </div>
 
-  <div class="actions">
-    <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready' || running}>수집 실행</button>
-    {#if running}
-      <button onclick={cancelCollect} disabled={busy} class="danger">수집 중단</button>
-    {/if}
-    {#if engine.status !== 'ready'}
-      <span class="label">엔진이 준비되면 수집할 수 있습니다 (현재: {ENGINE_LABELS[engine.status] ?? engine.status})</span>
-    {/if}
-    <button onclick={checkStatus} disabled={busy}>상태 확인</button>
-    {#if doc.funnel.extracted > 0}
-      <button class="btn" onclick={viewInFiftyone}>FiftyOne 에서 이 문서만 보기</button>
-    {/if}
-    <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
-    <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
-    <button onclick={runSync} disabled={busy}>검수결과 반영</button>
-    <button onclick={runExport} disabled={busy}>학습용 데이터 라벨 생성</button>
+  <div class="lifecycle">
+    <section class="step">
+      <div class="step-head"><span class="badge">1</span> 수집</div>
+      <div class="step-body">
+        <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
+        <button class="primary" onclick={collect} disabled={busy || engine.status !== 'ready' || running}>수집 실행</button>
+        {#if running}
+          <button onclick={cancelCollect} disabled={busy} class="danger">수집 중단</button>
+        {/if}
+        <button onclick={checkStatus} disabled={busy}>상태 확인</button>
+        <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
+        {#if engine.status !== 'ready'}
+          <span class="hint">엔진 준비 후 수집 가능 (현재: {ENGINE_LABELS[engine.status] ?? engine.status})</span>
+        {/if}
+      </div>
+    </section>
+
+    <section class="step">
+      <div class="step-head"><span class="badge">2</span> 검수 (FiftyOne)</div>
+      <div class="step-body">
+        <button class="btn" onclick={viewInFiftyone} disabled={doc.funnel.extracted === 0}>이 문서만 보기</button>
+        <button onclick={runSync} disabled={busy}>검수결과 반영</button>
+      </div>
+    </section>
+
+    <section class="step">
+      <div class="step-head"><span class="badge">3</span> 학습 라벨</div>
+      <div class="step-body">
+        <button onclick={runExport} disabled={busy}>학습용 데이터 라벨 생성</button>
+      </div>
+    </section>
   </div>
 
   {#if editing}
@@ -271,6 +286,25 @@
     100% { margin-left: 100%; }
   }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+  /* 라이프사이클 스테퍼 — 수집 → 검수 → 학습 라벨, 좌→우 진행 */
+  .lifecycle { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; align-items: stretch; }
+  .step { flex: 1 1 240px; border: 1px solid var(--border); border-radius: 10px;
+          padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px;
+          position: relative; }
+  /* 카드 사이 진행 화살표(넓을 때만) */
+  .step:not(:last-child)::after {
+    content: '›'; position: absolute; right: -10px; top: 50%; transform: translate(50%, -50%);
+    color: var(--border); font-size: 20px; line-height: 1; z-index: 1;
+  }
+  .step-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600;
+               padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+           border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px;
+           font-weight: 700; flex: none; }
+  .step:nth-child(3) .badge { background: var(--training); }   /* 최종 산출(학습 라벨) */
+  .step-body { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .step-body .hint { flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  @media (max-width: 860px) { .step:not(:last-child)::after { display: none; } }
   .btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px;
          color: var(--text); text-decoration: none; background: none;
          cursor: pointer; font: inherit; }
