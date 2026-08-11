@@ -9,6 +9,8 @@ FiftyOne 삭제는 delete_fiftyone_samples() 로 격리 — 미설치/오류여�
 """
 from __future__ import annotations
 
+import shutil
+
 from drheri_pipeline import storage
 from drheri_pipeline.db import conn
 
@@ -70,6 +72,13 @@ def reset_document(doc_id: int) -> dict | None:
         except OSError:
             pass
 
+    # 이 문서의 export 산출물(labels.tsv·manifest.jsonl)도 정리 — 안 지우면 삭제된 이미지를
+    # 가리키는 '유령 라벨' 이 남는다. 재수집 후 export 하면 새로 생성된다.
+    export_dir = storage.DATA_ROOT / "export" / f"doc-{doc_id}"
+    export_cleared = export_dir.exists()
+    if export_cleared:
+        shutil.rmtree(export_dir, ignore_errors=True)
+
     # DB 삭제 (문서·브랜드는 유지)
     with conn.session() as cx:
         cx.execute("DELETE FROM image_origin WHERE document_id=?", (doc_id,))
@@ -79,4 +88,4 @@ def reset_document(doc_id: int) -> dict | None:
 
     return {"deleted_images": len(solo), "deleted_files": removed_files,
             "deleted_runs": deleted_runs, "deleted_training": training,
-            "kept_shared": kept_shared}
+            "kept_shared": kept_shared, "export_cleared": export_cleared}
