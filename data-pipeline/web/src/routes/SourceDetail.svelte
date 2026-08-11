@@ -95,6 +95,19 @@
     }
   }
 
+  async function runExport() {
+    // 학습데이터 내보내기(전역: training 승급분 전체 → labels.tsv + manifest.jsonl 생성)
+    busy = true;
+    try {
+      const r = await post('/api/export', {});
+      toast(`DGX 내보내기 생성 완료 — ${r.rows}행 (${r.labels_tsv})`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   // '이 문서만 보기' — 서버에서 세션 뷰를 doc-N 으로 확정한 뒤 FiftyOne 탭을 연다.
   // (URL ?view= 는 단일세션에서 이전 필터와 충돌 → 서버 session.view 세팅이 확실)
   async function viewInFiftyone() {
@@ -214,6 +227,7 @@
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수정'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
     <button onclick={archive}>보관</button>
+    <button onclick={runExport} disabled={busy}>DGX 내보내기 생성</button>
   </div>
 
   {#if editing}
