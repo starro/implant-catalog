@@ -112,7 +112,7 @@
     busy = true;
     try {
       const r = await post(`/api/sources/${id}/export`, {});
-      toast(`DGX 내보내기 생성 완료 — ${r.rows}행 (${r.labels_tsv})`, 'success');
+      toast(`학습용 데이터 라벨 생성 완료 — ${r.rows}행 (${r.labels_tsv})`, 'success');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -228,7 +228,7 @@
     <button onclick={() => (editing = !editing)}>{editing ? '취소' : '수집 설정 변경'}</button>
     <button onclick={reset} disabled={busy} class="danger">수집 초기화</button>
     <button onclick={runSync} disabled={busy}>검수결과 반영</button>
-    <button onclick={runExport} disabled={busy}>DGX 내보내기 생성</button>
+    <button onclick={runExport} disabled={busy}>학습용 데이터 라벨 생성</button>
   </div>
 
   {#if editing}

@@ -17,7 +17,7 @@
 </script>
 
 <h2>학습데이터</h2>
-<p class="label">내보내기 생성은 소스 상세 페이지에서 실행합니다. 여기서는 현황만 조회합니다.</p>
+<p class="label">학습용 데이터 라벨 생성은 소스 상세 페이지에서 실행합니다. 여기서는 현황만 조회합니다.</p>
 
 {#if dist}
   <p class="label">학습 이미지 {num(dist.total)}장</p>
